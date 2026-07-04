@@ -1,0 +1,21 @@
+{
+  "sample-model-a": {
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "max_tokens": 4096
+  },
+  "anthropic/sample-model-b": {
+    "input_cost_per_token": 0.0000008,
+    "output_cost_per_token": 0.0000024,
+    "max_tokens": 8192
+  },
+  "sample-model-c": {
+    "input_cost_per_token": 0.0000005,
+    "max_tokens": 2048
+  },
+  "sample-model-d": {
+    "input_cost_per_token": 0.0000010,
+    "output_cost_per_token": 0.0000050,
+    "max_tokens": 4096
+  }
+}
