@@ -21,6 +21,8 @@ defmodule Mix.Tasks.Mimir.Smoke do
   8. turn events — current-request buffering, ordering, envelope shape
   9. router client — placement round-trip and http_error mapping over a real Req request (skipped unless run under `MIX_ENV=test` — Plug is a test-only dependency; CI's test job runs it for real)
   10. redact — provider split, truncation, payload gating
+  11. guard — grant guard halts at budget; caps guard halts at turns
+  12. sessions — route response assembled into session opts; ingest correlated by decision_id
 
   ## Usage
 
@@ -120,7 +122,9 @@ defmodule Mix.Tasks.Mimir.Smoke do
       stage("health degradation via telemetry", &health_stage/0),
       stage("turn events buffering", &turn_events_stage/0),
       stage("router HTTP client round-trip", &router_client_stage/0),
-      stage("redact helpers", &redact_stage/0)
+      stage("redact helpers", &redact_stage/0),
+      stage("guard budget + caps halts", &guard_stage/0),
+      stage("sessions opts + ingest correlation", &sessions_stage/0)
     ]
 
     if Enum.any?(results, &match?({_, :fail, _}, &1)), do: {:error, results}, else: {:ok, results}
@@ -377,6 +381,59 @@ defmodule Mix.Tasks.Mimir.Smoke do
     truncated = Redact.truncate(String.duplicate("a", 100), 10)
     true = byte_size(truncated) <= 10
     {:ok, "provider split, payload gate, truncation"}
+  end
+
+  defp guard_stage do
+    previous = Application.get_env(:mimir, :pricing)
+    Application.put_env(:mimir, :pricing, @rates)
+
+    try do
+      guard = Mimir.Guard.for_grant(%{budget_microdollars: 18_000}, @model)
+      :cont = guard.(%{usage: %{input_tokens: 10, output_tokens: 10}, turns: 1})
+
+      {:halt, {:budget_exceeded, _}} =
+        guard.(%{usage: %{input_tokens: 1_000, output_tokens: 1_000}, turns: 2})
+
+      {:halt, {:max_turns, _}} =
+        Mimir.Guard.caps(max_turns: 3).(%{usage: %{}, turns: 3})
+
+      {:ok, "grant guard halts at budget; caps halt at turns"}
+    after
+      if previous,
+        do: Application.put_env(:mimir, :pricing, previous),
+        else: Application.delete_env(:mimir, :pricing)
+    end
+  end
+
+  defp sessions_stage do
+    resp = %{
+      verdict: "placement",
+      placement: %{
+        lane: "anthropic",
+        model: @model,
+        runtime: "managed",
+        reasons: [],
+        candidates: []
+      },
+      grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
+      workflow_id: "wf",
+      step_id: "s1",
+      decision_id: "rd_smoke",
+      snapshot_at: "2026-07-04T00:00:00Z"
+    }
+
+    opts = Mimir.Sessions.opts(resp, base_url: "https://gw.example/v1", request_id: "req_smoke")
+    true = opts[:model_config].api_key == "vk-grant"
+    true = opts[:telemetry_metadata].decision_id == "rd_smoke"
+    true = is_function(opts[:turn_guard], 1)
+
+    # Ingest: the recipe's correlation flows into buffered events.
+    ctx = Mimir.Ingest.from_route(resp, "req_smoke")
+    :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hi"})
+    [event] = Mimir.TurnEvents.take("req_smoke")
+    true = event["gen_ai"]["decision_id"] == "rd_smoke"
+
+    {:ok, "opts assembled; ingest correlated by decision_id"}
   end
 
   defp print_results(results) do

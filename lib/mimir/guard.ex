@@ -24,7 +24,7 @@ defmodule Mimir.Guard do
   @doc """
   Build a guard from a route-response grant. `grant` needs only
   `budget_microdollars` (atom or string key) — pass `resp.grant` from
-  `Mimir.RouterClient.route/2` directly. A nil/absent budget never halts on
+  `c:Mimir.RouterClient.route/2` directly. A nil/absent budget never halts on
   cost. `opts` take `caps/1` options; caps are checked before the budget.
   """
   @spec for_grant(map(), String.t(), keyword()) :: guard_fun()

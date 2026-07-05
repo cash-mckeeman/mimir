@@ -19,7 +19,7 @@ Add `mimir` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mimir, "~> 0.1.0"}
+    {:mimir, "~> 0.2.0"}
   ]
 end
 ```
@@ -39,6 +39,9 @@ end
 | `Mimir.TurnEvents` | Per-request ordered `gen_ai.*` event buffer. |
 | `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. |
 | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
+| `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
+| `Mimir.Ingest` | Decision-correlated ingestion of raw session events into `Mimir.TurnEvents`. |
+| `Mimir.Sessions` | Canonical recipe: route response to session options (`model_config`, `turn_guard`, `telemetry_metadata`). |
 
 ## Design rules
 
@@ -96,10 +99,10 @@ Runnable, heavily-commented examples ship with the package:
 - `mix quality` — format check, `--warnings-as-errors` compile, `credo --strict`, dialyzer.
 - `mix mimir.smoke` — a staged end-to-end smoke of the public API: descriptor,
   catalog, oracle, decision record, route log, pricing, health, turn events,
-  router client, and redact. It runs 10 stages; the router-client (HTTP)
-  stage exercises a real request against an in-process plug under
-  `MIX_ENV=test` (or in CI), and reports `[SKIP]` honestly otherwise, since
-  the Plug dependency it needs is test-only.
+  router client, redact, guard, and sessions. It runs 12 stages; the
+  router-client (HTTP) stage exercises a real request against an in-process
+  plug under `MIX_ENV=test` (or in CI), and reports `[SKIP]` honestly
+  otherwise, since the Plug dependency it needs is test-only.
 - `mix test` — the ExUnit suite.
 
 ## Gateway-less mode
@@ -135,7 +138,47 @@ end
 ```
 
 Same descriptors, same decision records, no service required. Budget guards
-without minted keys arrive with `Mimir.Guard` in 0.2.0.
+without minted keys are plain caps, no grant needed:
+
+```elixir
+turn_guard = Mimir.Guard.caps(max_cost_microdollars: 50_000, model: "anthropic:claude-sonnet-4-6")
+```
+
+See [Governance composition](#governance-composition) below for the grant-backed
+form and the rest of the composition layer.
+
+## Governance composition
+
+Mimir hands back plain data — a placement, a grant, a decision record.
+Turning that into enforcement is the embedder's job, and it splits into two
+planes:
+
+- **Data plane** — the grant's minted key and the gateway's `base_url` ride
+  along in `model_config`. For runtimes that route every call through the
+  gateway, this is hard enforcement: the gateway itself refuses spend past
+  the grant's budget.
+- **Control plane** — `Mimir.Guard` builds a `turn_guard` function that prices
+  a session's accumulated usage after each turn and halts once a cap is hit.
+  This is the soft half, for runtimes the gateway can't sit in front of, or
+  as defense in depth alongside the data plane.
+
+`Mimir.Sessions.opts/2` is the canonical recipe that wires both planes from a
+single route response:
+
+```elixir
+{:ok, resp} = Mimir.RouterClient.route(descriptor, client_opts)
+session_opts = Mimir.Sessions.opts(resp, base_url: gateway_url)
+Session.run(provider, session_opts ++ [handler: MyTools, prompt: prompt])
+```
+
+`opts/2` raises `ArgumentError` on a no-candidate or malformed route
+response — fail at composition time, not mid-session. `Mimir.Guard` handles
+the mid-run side and never raises.
+
+To correlate raw session events back to the routing decision for metering,
+call `Mimir.Ingest.handle_event/2` from your session handler's event hook;
+drain the buffered, correlated events with `Mimir.TurnEvents.take/1` when you
+meter the run.
 
 ## Documentation
 
