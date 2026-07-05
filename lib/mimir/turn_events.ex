@@ -35,7 +35,11 @@ defmodule Mimir.TurnEvents do
 
   @doc "Set the process-local current request id (the buffer key)."
   @spec put_current(request_id() | any()) :: :ok
-  def put_current(rid) when is_binary(rid) or is_integer(rid), do: Process.put(@pdkey, rid)
+  def put_current(rid) when is_binary(rid) or is_integer(rid) do
+    Process.put(@pdkey, rid)
+    :ok
+  end
+
   def put_current(_), do: :ok
 
   @doc "The process-local current request id, or nil."

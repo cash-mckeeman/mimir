@@ -32,7 +32,7 @@ defmodule Mimir.HealthTest do
   describe "handler attachment" do
     test "Health handler is attached to the configured completion event" do
       :ok = Health.attach()
-      on_exit(fn -> :telemetry.detach("mimir-router-health") end)
+      on_exit(fn -> Health.detach() end)
 
       handlers = :telemetry.list_handlers([:example_app, :completion])
       assert Enum.any?(handlers, &(&1.id == "mimir-router-health"))
@@ -222,7 +222,7 @@ defmodule Mimir.HealthTest do
       on_exit(fn -> Application.delete_env(:mimir, :completion_event) end)
 
       :ok = Mimir.Health.attach()
-      on_exit(fn -> :telemetry.detach("mimir-router-health") end)
+      on_exit(fn -> Mimir.Health.detach() end)
 
       :telemetry.execute([:custom, :done], %{}, %{model: "anthropic:x", outcome: :error})
       :telemetry.execute([:custom, :done], %{}, %{model: "anthropic:x", outcome: :error})

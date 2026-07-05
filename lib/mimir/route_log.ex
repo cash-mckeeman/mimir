@@ -53,7 +53,9 @@ defmodule Mimir.RouteLog do
   @doc """
   Translate the record into request-log meta. Pure given `ts` (nanosecond
   event timestamp); defaults to the monotonic clock. Only route-meaningful
-  keys are emitted.
+  keys are emitted. Notably, the emitted `virtual_key_id` carries `caller.id`
+  — the field name is kept as-is for embedder request-log vocabulary
+  compatibility, not because the caller is necessarily a virtual key.
   """
   @spec to_meta(t(), integer()) :: map()
   def to_meta(%__MODULE__{} = log, ts \\ System.monotonic_time(:nanosecond)) do

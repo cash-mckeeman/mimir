@@ -6,7 +6,22 @@ defmodule Mimir.SmokeTest do
   surface is verified on every build, not only on explicit smoke runs.
   """
 
+  alias Mimir.{Health, TurnEvents}
   alias Mix.Tasks.Mimir.Smoke
+
+  setup_all do
+    # Own the smoke's GenServers via the test supervisor rather than letting
+    # `ensure_servers/0` link them to the test process — otherwise the async
+    # ETS table teardown on process exit can race a later test's setup.
+    for server <- [Health, TurnEvents] do
+      case start_supervised(server) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+      end
+    end
+
+    :ok
+  end
 
   test "run_smoke/0 returns {:ok, results} with every stage passing" do
     assert {:ok, results} = Smoke.run_smoke()

@@ -10,10 +10,10 @@ defmodule Mimir.Redact do
   Splits a `"provider:model_id"` model string into `{provider, model_id}`.
   If there is no `:` separator, returns `{nil, model}`.
 
-      iex> Redact.split_provider("bedrock:nvidia.nemotron-super-3-120b")
+      iex> Mimir.Redact.split_provider("bedrock:nvidia.nemotron-super-3-120b")
       {"bedrock", "nvidia.nemotron-super-3-120b"}
 
-      iex> Redact.split_provider("claude-3")
+      iex> Mimir.Redact.split_provider("claude-3")
       {nil, "claude-3"}
   """
   @spec split_provider(String.t()) :: {String.t() | nil, String.t() | nil}

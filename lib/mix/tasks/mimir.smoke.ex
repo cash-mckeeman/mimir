@@ -36,13 +36,14 @@ defmodule Mix.Tasks.Mimir.Smoke do
   # Plug is a test-only dependency (mix.exs `only: :test`) — it (and Req.Test,
   # which calls into it) is only compiled under MIX_ENV=test. The router-client
   # stage's Plug-based body is guarded by this flag so it's dead-code-eliminated
-  # under other envs, and `mix compile --warnings-as-errors` / `mix dialyzer`
-  # (both run under MIX_ENV=dev by `mix quality` / the CI dialyzer job) never
-  # reference the unavailable module. `Mimir.RouterClient.HTTP` itself is a
-  # normal (always-compiled) library module, so it's aliased unconditionally
-  # below — only the literal `Plug.Conn` / `Req.Test` calls need gating.
-  # The real, Plug-backed check runs wherever MIX_ENV=test — `mix test` and
-  # the `mix mimir.smoke` CI step, which lives in the test job (MIX_ENV=test).
+  # under other envs. Locally, `mix quality` runs under the ambient dev
+  # environment, so it never compiles the gated branch — but CI's dialyzer job
+  # inherits the workflow-level `MIX_ENV=test` and DOES analyze it.
+  # `Mimir.RouterClient.HTTP` itself is a normal (always-compiled) library
+  # module, so it's aliased unconditionally below — only the literal
+  # `Plug.Conn` / `Req.Test` calls need gating. The real, Plug-backed check
+  # runs wherever MIX_ENV=test — `mix test` and the `mix mimir.smoke` CI step,
+  # which lives in the test job (MIX_ENV=test).
   @plug_loaded? Mix.env() == :test
 
   alias Mimir.{
@@ -292,7 +293,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
       :ok = Health.state("anthropic")
       {:ok, "3 failures → degraded; 1 success → recovered"}
     after
-      :telemetry.detach("mimir-router-health")
+      Health.detach()
       Application.delete_env(:mimir, :completion_event)
       Health.reset()
     end
@@ -300,12 +301,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
 
   defp turn_events_stage do
     rid = "smoke-#{System.unique_integer([:positive])}"
-    # put_current/1 returns whatever was previously under the process-dict key
-    # (via Process.put/2), not a fixed :ok — the ported unit test
-    # (test/mimir/turn_events_test.exs) calls it without asserting a return
-    # value, so the stage does the same rather than pinning a return shape
-    # the module never promises for this clause.
-    TurnEvents.put_current(rid)
+    :ok = TurnEvents.put_current(rid)
     :ok = TurnEvents.append_current("chat", GenAI.usage(10, 5))
     :ok = TurnEvents.append_current("tool_use", GenAI.tool_use(%{name: "search", id: "t1"}))
 
@@ -322,48 +318,54 @@ defmodule Mix.Tasks.Mimir.Smoke do
     alias Mimir.RouterClient.HTTP
 
     defp router_client_stage do
-      body = %{
-        "verdict" => "placement",
-        "placement" => %{
-          "lane" => "anthropic",
-          "model" => @model,
-          "runtime" => "managed",
-          "reasons" => [],
-          "candidates" => []
-        },
-        "grant" => %{"key" => "vk-grant", "expires_at" => nil, "budget_microdollars" => 50_000},
-        "workflow_id" => "wf",
-        "step_id" => "s1",
-        "decision_id" => "rd_smoke",
-        "snapshot_at" => "2026-07-04T00:00:00Z"
-      }
+      if Code.ensure_loaded?(Req.Test) do
+        body = %{
+          "verdict" => "placement",
+          "placement" => %{
+            "lane" => "anthropic",
+            "model" => @model,
+            "runtime" => "managed",
+            "reasons" => [],
+            "candidates" => []
+          },
+          "grant" => %{"key" => "vk-grant", "expires_at" => nil, "budget_microdollars" => 50_000},
+          "workflow_id" => "wf",
+          "step_id" => "s1",
+          "decision_id" => "rd_smoke",
+          "snapshot_at" => "2026-07-04T00:00:00Z"
+        }
 
-      {:ok, resp} =
-        HTTP.route(%{task_class: "extraction"},
-          base_url: "http://router.smoke",
-          bearer_token: "vk-parent",
-          plug: fn conn -> Req.Test.json(conn, body) end
-        )
+        {:ok, resp} =
+          HTTP.route(%{task_class: "extraction"},
+            base_url: "http://router.smoke",
+            bearer_token: "vk-parent",
+            plug: fn conn -> Req.Test.json(conn, body) end
+          )
 
-      true = resp.placement.model == @model
-      true = resp.grant.key == "vk-grant"
+        true = resp.placement.model == @model
+        true = resp.grant.key == "vk-grant"
 
-      {:error, {:http_error, 409, _}} =
-        HTTP.route(%{},
-          base_url: "http://router.smoke",
-          bearer_token: "vk-parent",
-          plug: fn conn -> Plug.Conn.send_resp(conn, 409, "{}") end
-        )
+        {:error, {:http_error, 409, _}} =
+          HTTP.route(%{},
+            base_url: "http://router.smoke",
+            bearer_token: "vk-parent",
+            plug: fn conn -> Plug.Conn.send_resp(conn, 409, "{}") end
+          )
 
-      {:ok, "placement atomized; 409 mapped to http_error"}
+        {:ok, "placement atomized; 409 mapped to http_error"}
+      else
+        {:skip, "compiled under MIX_ENV=test but Req.Test is not loaded at runtime"}
+      end
     end
   else
     # Plug (and Req.Test, which calls into it) is a test-only dependency —
-    # not compiled under this MIX_ENV. This branch only exists so `mix
-    # compile --warnings-as-errors` / `mix dialyzer` (run under MIX_ENV=dev by
-    # `mix quality` and the CI dialyzer job) never reference the unavailable
-    # module. The real check runs under MIX_ENV=test — `mix test` and the
-    # `mix mimir.smoke` CI step (in the test job, which sets MIX_ENV=test).
+    # not compiled under this MIX_ENV. This branch only exists so local
+    # `mix quality` (which runs under the ambient dev environment) never
+    # reference the unavailable module — it never compiles the gated branch
+    # above. CI's dialyzer job inherits the workflow-level `MIX_ENV=test` and
+    # DOES analyze that branch. The real check runs under MIX_ENV=test —
+    # `mix test` and the `mix mimir.smoke` CI step (in the test job, which
+    # sets MIX_ENV=test).
     defp router_client_stage do
       {:skip, "Plug is a test-only dependency; run under MIX_ENV=test for the real round trip"}
     end

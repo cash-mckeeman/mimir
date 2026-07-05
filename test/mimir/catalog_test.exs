@@ -31,7 +31,17 @@ defmodule Mimir.CatalogTest do
 
   test "builds entries with resolved specs from explicit config" do
     entries = Catalog.entries(@config, resolve: &resolve/1)
-    assert [%Catalog.Entry{id: "sonnet-managed", model_spec: :spec} | _] = entries
+
+    assert [
+             %Catalog.Entry{
+               id: "sonnet-managed",
+               model_spec: :spec,
+               capabilities: [:tools, :vision],
+               p50_latency_ms: 4_000,
+               priority: 10
+             }
+             | _
+           ] = entries
   end
 
   test "an entry whose model fails resolution is dropped with a logged warning" do

@@ -34,7 +34,7 @@ defmodule Mimir.SnapshotTest do
   # ── assemble/1 ────────────────────────────────────────────────────────────
 
   describe "assemble/1" do
-    test "no options → parent_remaining :unlimited" do
+    test "no options, or no :parent_remaining option → parent_remaining :unlimited" do
       snap = Snapshot.assemble([])
 
       assert %Snapshot{} = snap
@@ -42,11 +42,6 @@ defmodule Mimir.SnapshotTest do
       assert snap.parent_remaining == :unlimited
       assert snap.rpm_headroom == :unlimited
       assert %DateTime{} = snap.snapshot_at
-    end
-
-    test "no :parent_remaining option → :unlimited" do
-      snap = Snapshot.assemble([])
-      assert snap.parent_remaining == :unlimited
     end
 
     test ":parent_remaining option is passed through" do

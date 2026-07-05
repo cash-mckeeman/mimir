@@ -8,6 +8,10 @@ defmodule Mimir.Oracle do
   Rank (v1, deliberately weightless): cheapest projected step cost, tie-break
   ascending p50 latency, then ascending priority. When eval scorecards exist,
   `quality_bar` becomes a fourth FILTER (below-bar excluded), not a weight.
+
+  A model absent from `snapshot.pricing` defaults to zero input/output rates —
+  it always passes the cost filter and ranks as the cheapest candidate, so
+  keep the pricing map complete for every entry you want cost-ranked honestly.
   """
   alias Mimir.{Catalog.Entry, Descriptor, Snapshot}
 

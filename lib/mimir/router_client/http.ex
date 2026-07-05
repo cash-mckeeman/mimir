@@ -7,7 +7,10 @@ defmodule Mimir.RouterClient.HTTP do
   ## Options
 
   - `:base_url` (required) — e.g. `"https://gateway.example.com"`.
-  - `:bearer_token` (required) — the `vk-…` plaintext key.
+  - `:bearer_token` (required) — the caller's bearer token.
+  - `:plug` (optional) — a plug (module or function) handling the request
+    in-process instead of a live HTTP call — the `Req.Test` seam; used by
+    this library's own tests and smoke task.
 
   ## Response normalization
 
@@ -85,7 +88,7 @@ defmodule Mimir.RouterClient.HTTP do
   defp normalize_placement(placement) when is_map(placement) do
     atomized = atomize(placement)
     candidates = Map.get(atomized, :candidates, [])
-    %{atomized | candidates: Enum.map(candidates, &atomize/1)}
+    Map.put(atomized, :candidates, Enum.map(candidates, &atomize/1))
   end
 
   defp atomize(m) when is_map(m) do

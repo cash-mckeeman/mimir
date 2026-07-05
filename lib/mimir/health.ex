@@ -50,6 +50,12 @@ defmodule Mimir.Health do
   defp completion_event,
     do: Application.get_env(:mimir, :completion_event, [:mimir, :completion])
 
+  @doc "Detach the telemetry handler attached by `attach/0`."
+  @spec detach() :: :ok | {:error, :not_found}
+  def detach do
+    :telemetry.detach(@handler_id)
+  end
+
   @doc false
   @spec handle_event(:telemetry.event_name(), :telemetry.event_measurements(), map(), term()) ::
           :ok

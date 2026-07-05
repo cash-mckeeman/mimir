@@ -17,6 +17,9 @@ defmodule Mix.Tasks.Mimir.Pricing.Refresh do
 
     * `--url <url>` — override the source URL (default: the LiteLLM `main` raw JSON)
     * `--dest <path>` — override the destination `.gz` file (default: the vendored priv path)
+
+  When run inside an embedding app, pair `--dest` with the `:mimir, :pricing_db_path`
+  config so `Mimir.Pricing` reads the refreshed file.
   """
   use Mix.Task
 

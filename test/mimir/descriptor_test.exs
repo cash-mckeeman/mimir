@@ -113,12 +113,22 @@ defmodule Mimir.DescriptorTest do
                Mimir.Descriptor.parse(Map.put(@valid, :agent, "not-a-map"))
     end
 
+    test "rejects agent with an empty-string digest" do
+      assert {:error, {:invalid_descriptor, :agent, _}} =
+               Mimir.Descriptor.parse(Map.put(@valid, :agent, %{digest: ""}))
+    end
+
     test "parses max_outcome_iterations, rejects non-positive" do
       assert {:ok, %{max_outcome_iterations: 5}} =
                Mimir.Descriptor.parse(Map.put(@valid, :max_outcome_iterations, 5))
 
       assert {:error, {:invalid_descriptor, :max_outcome_iterations, _}} =
                Mimir.Descriptor.parse(Map.put(@valid, :max_outcome_iterations, 0))
+    end
+
+    test "rejects negative max_outcome_iterations" do
+      assert {:error, {:invalid_descriptor, :max_outcome_iterations, _}} =
+               Mimir.Descriptor.parse(Map.put(@valid, :max_outcome_iterations, -3))
     end
   end
 end
