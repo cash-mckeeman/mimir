@@ -48,6 +48,7 @@ jobs:
       - run: mix compile --warnings-as-errors
         if: ${{ matrix.lint }}
       - run: mix test
+      - run: mix mimir.smoke
 
   quality:
     name: quality (format, credo, docs, package)
