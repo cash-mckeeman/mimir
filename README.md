@@ -76,6 +76,21 @@ All configuration lives under the `:mimir` application:
 | `:completion_event` | `Mimir.Health` | Telemetry event `Health.attach/0` listens on. Default `[:mimir, :completion]`. |
 | `:turn_events_tables` | `Mimir.TurnEvents` | `{seq_table, buf_table}` ETS table names, for running more than one buffer instance. |
 
+## Examples
+
+Runnable, heavily-commented examples ship with the package:
+
+- [`examples/gateway_less.exs`](examples/gateway_less.exs) — the headline
+  pattern: consult the oracle in-process, no service required. Configures a
+  catalog and pricing in-script, parses a descriptor, assembles the
+  degenerate snapshot, and prints both a placement's decision record and a
+  couple of `no_candidate` outcomes.
+- [`examples/routed_grants.exs`](examples/routed_grants.exs) — the fleet
+  shape: route through a live router service via `Mimir.RouterClient.HTTP`,
+  print the placement and masked grant, and handle `no_candidate` and error
+  responses. Prints friendly setup instructions and exits cleanly if
+  `ROUTER_URL`/`ROUTER_KEY` aren't set.
+
 ## Development
 
 - `mix quality` — format check, `--warnings-as-errors` compile, `credo --strict`, dialyzer.
