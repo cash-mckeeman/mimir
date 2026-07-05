@@ -1,0 +1,62 @@
+defmodule Mimir.RouteLogTest do
+  use ExUnit.Case, async: true
+
+  alias Mimir.RouteLog
+
+  @record %{"decision_id" => "rd_test", "verdict" => "placement"}
+
+  defp route_log(outcome) do
+    %RouteLog{
+      request_id: "req_route_abc",
+      caller: %{id: "vk-uuid", tenant_id: "t1"},
+      correlation: %{workflow_id: "wf_1", step_id: "step_1", parent_step_id: "step_0"},
+      outcome: outcome,
+      decision_record: @record
+    }
+  end
+
+  describe "to_meta/2" do
+    test "placed and no_candidate are successful verdicts, not errors" do
+      for outcome <- [:placed, :no_candidate] do
+        meta = RouteLog.to_meta(route_log(outcome), 42)
+
+        assert meta.status == "success"
+        assert meta.error_class == nil
+        assert meta.error_detail == nil
+      end
+    end
+
+    test "grant_failed derives status, class, and detail from the one outcome value" do
+      meta = RouteLog.to_meta(route_log({:grant_failed, :parent_exhausted}), 42)
+
+      assert meta.status == "error"
+      assert meta.error_class == "grant_failed"
+      assert meta.error_detail == "parent_exhausted"
+    end
+
+    test "threads caller identity and workflow correlation" do
+      log = route_log(:placed)
+      meta = RouteLog.to_meta(log, 42)
+
+      assert meta.virtual_key_id == log.caller.id
+      assert meta.tenant_id == "t1"
+      assert meta.lane == "router"
+      assert meta.workflow_id == "wf_1"
+      assert meta.step_id == "step_1"
+      assert meta.parent_step_id == "step_0"
+    end
+
+    test "wraps the decision record in the TurnEvents envelope" do
+      meta = RouteLog.to_meta(route_log(:placed), 42)
+
+      assert [%{"seq" => 1, "ts" => 42, "type" => "routing_decision", "gen_ai" => @record}] =
+               meta.gen_ai_events
+    end
+  end
+
+  test "gen_request_id/0 mints route-scoped correlation ids" do
+    id = RouteLog.gen_request_id()
+    assert String.starts_with?(id, "req_route_")
+    assert id != RouteLog.gen_request_id()
+  end
+end
