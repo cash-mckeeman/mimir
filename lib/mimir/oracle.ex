@@ -29,6 +29,11 @@ defmodule Mimir.Oracle do
           }
   end
 
+  @doc """
+  Filter `entries` against `descriptor`, `policy`, and `snapshot`, then rank
+  the viable candidates. Returns the chosen placement plus every candidate's
+  verdict, or `:no_candidate` with the distinct exclusion reasons.
+  """
   @spec decide(Descriptor.t(), [Entry.t()], Policy.t(), Snapshot.t()) ::
           {:placement, Placement.t()} | {:no_candidate, [term()], [map()]}
   def decide(%Descriptor{} = d, entries, %Policy{} = policy, %Snapshot{} = snap) do

@@ -41,6 +41,12 @@ defmodule Mimir.Catalog do
 
   @type resolver :: (String.t() -> {:ok, term()} | {:error, :unknown_model})
 
+  @doc """
+  Build the routable entry list from `config` (defaults to `:mimir, :catalog`).
+
+  Pass `resolve: fun` to validate/enrich each entry's model through your own
+  registry; entries whose model the resolver rejects are dropped (and logged).
+  """
   @spec entries([map()] | nil, keyword()) :: [Entry.t()]
   def entries(config \\ nil, opts \\ []) do
     resolve = Keyword.get(opts, :resolve, fn model -> {:ok, model} end)

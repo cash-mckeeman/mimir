@@ -51,6 +51,8 @@ defmodule Mimir.Health do
     do: Application.get_env(:mimir, :completion_event, [:mimir, :completion])
 
   @doc false
+  @spec handle_event(:telemetry.event_name(), :telemetry.event_measurements(), map(), term()) ::
+          :ok
   def handle_event(_event, _measurements, %{model: model, outcome: outcome}, _config) do
     lane = lane_from_model(model)
 
@@ -110,6 +112,8 @@ defmodule Mimir.Health do
 
   # ── GenServer lifecycle ───────────────────────────────────────────────────
 
+  @doc "Start the health table owner. `opts` are unused; accepted for supervision-tree conformance."
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

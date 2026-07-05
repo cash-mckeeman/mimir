@@ -25,6 +25,10 @@ defmodule Mimir.Pricing do
           optional(:output_tokens) => non_neg_integer()
         }
 
+  @doc """
+  Cost of `usage` against `model`'s rate, in integer microdollars. Looks up
+  the rate via the lookup order documented above; an unpriced model costs 0.
+  """
   @spec cost_microdollars(String.t(), usage()) :: non_neg_integer()
   def cost_microdollars(model, usage) when is_binary(model) and is_map(usage) do
     %{input: in_rate, output: out_rate} = price(model)

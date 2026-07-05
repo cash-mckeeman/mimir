@@ -53,6 +53,11 @@ defmodule Mimir.Descriptor do
           runtime_preference: runtime_preference()
         }
 
+  @doc """
+  Validate and build a `t()` from a plain map. Accepts atom or string keys.
+  Rejects a non-nil `quality_bar` and any unknown capability/runtime-preference
+  value rather than silently dropping it.
+  """
   @spec parse(map()) ::
           {:ok, t()}
           | {:error, {:invalid_descriptor, atom(), String.t()}}

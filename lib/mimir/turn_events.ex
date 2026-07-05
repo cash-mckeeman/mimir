@@ -29,6 +29,8 @@ defmodule Mimir.TurnEvents do
   defp tables,
     do: Application.get_env(:mimir, :turn_events_tables, {:mimir_turn_seq, :mimir_turn_events})
 
+  @doc "Start the buffer's table owner. `opts` are unused; accepted for supervision-tree conformance."
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc "Set the process-local current request id (the buffer key)."

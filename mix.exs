@@ -53,12 +53,12 @@ defmodule Mimir.MixProject do
     [
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib priv mix.exs README.md CHANGELOG.md LICENSE)
+      files: ~w(lib priv/pricing mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
   defp docs do
-    [main: "readme", extras: ["README.md", "CHANGELOG.md"]]
+    [main: "readme", extras: ["README.md", "CHANGELOG.md", "LICENSE"]]
   end
 
   defp dialyzer do
