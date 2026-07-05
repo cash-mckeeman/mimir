@@ -77,6 +77,15 @@ defmodule Mimir.GuardTest do
       assert guard.(state(1, 1, 2)) == :cont
       assert {:halt, {:max_turns, %{turns: 3, max: 3}}} = guard.(state(1, 1, 3))
     end
+
+    test "never raises on non-map or non-integer usage (degrades to :cont)" do
+      guard = Mimir.Guard.for_grant(%{budget_microdollars: 18_000}, @model)
+
+      # non-map usage
+      assert guard.(%{usage: nil, turns: 1}) == :cont
+      # non-integer token values
+      assert guard.(%{usage: %{input_tokens: "lots", output_tokens: nil}, turns: 1}) == :cont
+    end
   end
 
   describe "caps/1" do

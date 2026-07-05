@@ -87,6 +87,10 @@ defmodule Mimir.SessionsTest do
     assert_raise ArgumentError, ~r/grant has no key/, fn ->
       Mimir.Sessions.opts(%{@resp | grant: %{budget_microdollars: 1}})
     end
+
+    assert_raise ArgumentError, ~r/no model/, fn ->
+      Mimir.Sessions.opts(%{@resp | placement: Map.delete(@resp.placement, :model)})
+    end
   end
 
   test "accepts string-keyed responses (raw JSON that skipped the client)" do

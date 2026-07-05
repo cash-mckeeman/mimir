@@ -99,12 +99,20 @@ defmodule Mimir.Guard do
   # read with Map.get, never bracket access. `usage[:k]` / `usage["k"]` raise on a struct
   # (no Access behaviour), which would violate "never raises mid-run". Map.get reads a
   # struct AND a plain atom- or string-keyed map, so injected / mimir-less callers work.
+  # A non-map usage, or a non-integer token value, degrades to 0 rather than raising, so
+  # the "never raises mid-run" guarantee holds for any caller — not only contract-shaped
+  # input (an integer-valued %Usage{} struct or map).
   defp normalize_usage(usage) when is_map(usage) do
     %{
-      input_tokens: Map.get(usage, :input_tokens) || Map.get(usage, "input_tokens") || 0,
-      output_tokens: Map.get(usage, :output_tokens) || Map.get(usage, "output_tokens") || 0
+      input_tokens: as_count(Map.get(usage, :input_tokens) || Map.get(usage, "input_tokens")),
+      output_tokens: as_count(Map.get(usage, :output_tokens) || Map.get(usage, "output_tokens"))
     }
   end
+
+  defp normalize_usage(_usage), do: %{input_tokens: 0, output_tokens: 0}
+
+  defp as_count(n) when is_integer(n), do: n
+  defp as_count(_), do: 0
 
   # Once per process per model: the guard runs inside the session's process,
   # so a process-dictionary flag is exactly the "warn once per run" scope.
