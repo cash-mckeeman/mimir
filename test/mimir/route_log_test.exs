@@ -1,9 +1,45 @@
 defmodule Mimir.RouteLogTest do
   use ExUnit.Case, async: true
 
-  alias Mimir.RouteLog
+  alias Mimir.{Catalog.Entry, DecisionRecord, Descriptor, RouteLog, Snapshot}
+  alias Mimir.Oracle.Placement
 
-  @record %{"decision_id" => "rd_test", "verdict" => "placement"}
+  defp record do
+    {:ok, descriptor} =
+      Descriptor.parse(%{
+        task_class: "extract",
+        budget_ceiling_microdollars: 50_000,
+        latency_tolerance_ms: 30_000
+      })
+
+    placement = %Placement{
+      entry: %Entry{
+        id: "haiku-managed",
+        model: "anthropic:claude-haiku-4-5",
+        model_spec: %{},
+        lane: :anthropic,
+        runtime: :managed
+      },
+      reasons: ["capability_match"],
+      candidates: [%{id: "haiku-managed", verdict: :chosen}]
+    }
+
+    snapshot = %Snapshot{
+      pricing: %{"anthropic:claude-haiku-4-5" => %{input: 250_000, output: 1_250_000}},
+      health: %{},
+      parent_remaining: :unlimited,
+      rpm_headroom: :unlimited,
+      snapshot_at: ~U[2026-07-04 00:00:00Z]
+    }
+
+    DecisionRecord.build(
+      descriptor,
+      {:placement, placement},
+      nil,
+      %{workflow_id: "wf_1", step_id: "step_1"},
+      snapshot
+    )
+  end
 
   defp route_log(outcome) do
     %RouteLog{
@@ -11,7 +47,7 @@ defmodule Mimir.RouteLogTest do
       caller: %{id: "vk-uuid", tenant_id: "t1"},
       correlation: %{workflow_id: "wf_1", step_id: "step_1", parent_step_id: "step_0"},
       outcome: outcome,
-      decision_record: @record
+      decision_record: record()
     }
   end
 
@@ -46,10 +82,19 @@ defmodule Mimir.RouteLogTest do
       assert meta.parent_step_id == "step_0"
     end
 
-    test "wraps the decision record in the TurnEvents envelope" do
-      meta = RouteLog.to_meta(route_log(:placed), 42)
+    test "wraps the decision record's rendered event in the TurnEvents envelope" do
+      log = route_log(:placed)
+      meta = RouteLog.to_meta(log, 42)
+      expected_event = DecisionRecord.to_event(log.decision_record)
 
-      assert [%{"seq" => 1, "ts" => 42, "type" => "routing_decision", "gen_ai" => @record}] =
+      assert [
+               %{
+                 "seq" => 1,
+                 "ts" => 42,
+                 "type" => "routing_decision",
+                 "gen_ai" => ^expected_event
+               }
+             ] =
                meta.gen_ai_events
     end
   end

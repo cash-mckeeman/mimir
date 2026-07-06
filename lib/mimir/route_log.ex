@@ -12,7 +12,7 @@ defmodule Mimir.RouteLog do
   the failure it explains.
   """
 
-  alias Mimir.TurnEvents
+  alias Mimir.{DecisionRecord, TurnEvents}
 
   @lane "router"
 
@@ -41,7 +41,7 @@ defmodule Mimir.RouteLog do
           caller: caller(),
           correlation: correlation(),
           outcome: outcome(),
-          decision_record: map()
+          decision_record: DecisionRecord.t()
         }
 
   @doc "Correlation id for a route call that arrived without one."
@@ -67,7 +67,14 @@ defmodule Mimir.RouteLog do
       status: status(log.outcome),
       error_class: error_class(log.outcome),
       error_detail: error_detail(log.outcome),
-      gen_ai_events: [TurnEvents.envelope(1, ts, "routing_decision", log.decision_record)],
+      gen_ai_events: [
+        TurnEvents.envelope(
+          1,
+          ts,
+          "routing_decision",
+          DecisionRecord.to_event(log.decision_record)
+        )
+      ],
       workflow_id: log.correlation.workflow_id,
       step_id: log.correlation.step_id,
       parent_step_id: log.correlation.parent_step_id

@@ -219,7 +219,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     snapshot = Snapshot.assemble(pricing: @rates)
     {:placement, placement} = Oracle.decide(d, entries, %Policy{}, snapshot)
 
-    record =
+    rec =
       DecisionRecord.build(
         d,
         {:placement, placement},
@@ -227,6 +227,8 @@ defmodule Mix.Tasks.Mimir.Smoke do
         %{workflow_id: "wf", step_id: "s1"},
         snapshot
       )
+
+    record = DecisionRecord.to_event(rec)
 
     "rd_" <> _ = record["decision_id"]
     true = record["grant_id"] == "grant-uuid-1"
@@ -238,18 +240,37 @@ defmodule Mix.Tasks.Mimir.Smoke do
   defp route_log_stage do
     "req_route_" <> _ = RouteLog.gen_request_id()
 
+    {:ok, d} =
+      Descriptor.parse(%{
+        task_class: "extraction",
+        budget_ceiling_microdollars: 50_000,
+        latency_tolerance_ms: 30_000
+      })
+
+    snapshot = Snapshot.assemble(pricing: @rates)
+
+    decision_record =
+      DecisionRecord.build(
+        d,
+        {:no_candidate, [], []},
+        nil,
+        %{workflow_id: "wf", step_id: "s1"},
+        snapshot
+      )
+
     log = %Mimir.RouteLog{
       request_id: "req_route_smoke",
       caller: %{id: "vk-uuid", tenant_id: "t1"},
       correlation: %{workflow_id: "wf", step_id: "s1", parent_step_id: nil},
       outcome: {:grant_failed, :parent_exhausted},
-      decision_record: %{"decision_id" => "rd_smoke"}
+      decision_record: decision_record
     }
 
     meta = RouteLog.to_meta(log, 0)
     true = meta.status == "error"
     true = meta.error_class == "grant_failed"
-    [%{"type" => "routing_decision"}] = meta.gen_ai_events
+    [%{"type" => "routing_decision", "gen_ai" => payload}] = meta.gen_ai_events
+    "rd_" <> _ = payload["decision_id"]
     {:ok, "grant_failed meta + routing_decision envelope"}
   end
 
