@@ -7,7 +7,15 @@ defmodule Mimir.IngestTest do
   end
 
   test "from_route/2 builds a correlated context" do
-    resp = %{decision_id: "rd_1", workflow_id: "wf", step_id: "s1", verdict: "placement"}
+    {:ok, resp} =
+      Mimir.RouteResponse.new(%{
+        verdict: "placement",
+        placement: %{model: "m"},
+        decision_id: "rd_1",
+        workflow_id: "wf",
+        step_id: "s1"
+      })
+
     ctx = Mimir.Ingest.from_route(resp, "req_1")
 
     assert ctx.request_id == "req_1"

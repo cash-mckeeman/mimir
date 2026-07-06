@@ -446,12 +446,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     true = opts[:telemetry_metadata].decision_id == "rd_smoke"
     true = is_function(opts[:turn_guard], 1)
 
-    # Ingest still takes a plain map in this task; Task 7 switches this to `resp`.
-    ctx =
-      Mimir.Ingest.from_route(
-        %{decision_id: "rd_smoke", workflow_id: "wf", step_id: "s1"},
-        "req_smoke"
-      )
+    ctx = Mimir.Ingest.from_route(resp, "req_smoke")
 
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hi"})
     [event] = Mimir.TurnEvents.take("req_smoke")
