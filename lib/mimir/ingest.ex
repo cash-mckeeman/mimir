@@ -38,17 +38,14 @@ defmodule Mimir.Ingest do
     }
   end
 
-  @doc "Build a context straight from a `Mimir.RouterClient` route response."
-  @spec from_route(map(), String.t()) :: t()
-  def from_route(resp, request_id) when is_map(resp) and is_binary(request_id) do
+  @doc "Build a context straight from a `Mimir.RouteResponse`."
+  @spec from_route(Mimir.RouteResponse.t(), String.t()) :: t()
+  def from_route(%Mimir.RouteResponse{} = resp, request_id) when is_binary(request_id) do
     new(
       request_id: request_id,
-      decision_id: resp[:decision_id] || resp["decision_id"],
+      decision_id: resp.decision_id,
       metadata:
-        %{
-          "workflow_id" => resp[:workflow_id] || resp["workflow_id"],
-          "step_id" => resp[:step_id] || resp["step_id"]
-        }
+        %{"workflow_id" => resp.workflow_id, "step_id" => resp.step_id}
         |> Enum.reject(fn {_k, v} -> is_nil(v) end)
         |> Map.new()
     )

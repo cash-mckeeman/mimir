@@ -10,6 +10,9 @@ defmodule Mimir.Sessions do
       session_opts = Mimir.Sessions.opts(resp, base_url: gateway_url)
       Session.run(provider, session_opts ++ [handler: MyTools, prompt: prompt])
 
+  `resp` is already a `%Mimir.RouteResponse{}` (built by `Mimir.RouteResponse.new/1`
+  at the parse boundary).
+
   `opts/2` raises `ArgumentError` on a no-candidate or malformed route
   response — fail at composition time, not mid-session. `Mimir.Guard` handles
   the mid-run side and never raises.
@@ -28,42 +31,43 @@ defmodule Mimir.Sessions do
   - `:request_id` — correlation id; defaults to `Mimir.RouteLog.gen_request_id/0`.
   - `:guard` — extra `Mimir.Guard.caps/1` options composed into the grant guard.
   """
-  @spec opts(map(), keyword()) :: keyword()
-  def opts(resp, opts \\ []) when is_map(resp) do
-    placement =
-      get(resp, :placement) ||
-        raise ArgumentError,
-              "route response has no placement (verdict: #{inspect(get(resp, :verdict))})"
+  @spec opts(Mimir.RouteResponse.t(), keyword()) :: keyword()
+  def opts(resp, opts \\ [])
 
-    grant = get(resp, :grant) || raise ArgumentError, "route response has no grant"
-    api_key = get(grant, :key) || raise ArgumentError, "route response grant has no key"
-
-    model =
-      get(placement, :model) || raise ArgumentError, "route response placement has no model"
-
+  def opts(
+        %Mimir.RouteResponse{
+          verdict: :placement,
+          placement: %Mimir.Placement{} = placement,
+          grant: %Mimir.Grant{} = grant
+        } =
+          resp,
+        opts
+      ) do
     request_id = Keyword.get(opts, :request_id) || Mimir.RouteLog.gen_request_id()
     base_url = Keyword.get(opts, :base_url, Application.get_env(:mimir, :gateway_base_url))
 
     metadata = %{
       mimir_request_id: request_id,
-      decision_id: get(resp, :decision_id),
-      workflow_id: get(resp, :workflow_id),
-      step_id: get(resp, :step_id)
+      decision_id: resp.decision_id,
+      workflow_id: resp.workflow_id,
+      step_id: resp.step_id
     }
 
     model_config =
-      %{model: model, api_key: api_key, metadata: metadata}
+      %{model: placement.model, api_key: grant.key, metadata: metadata}
       |> maybe_put(:base_url, base_url)
 
     [
       model_config: model_config,
-      turn_guard: Mimir.Guard.for_grant(grant, model, Keyword.get(opts, :guard, [])),
+      turn_guard: Mimir.Guard.for_grant(grant, placement.model, Keyword.get(opts, :guard, [])),
       telemetry_metadata: metadata
     ]
   end
 
-  defp get(map, key) when is_map(map), do: map[key] || map[to_string(key)]
-  defp get(_not_a_map, _key), do: nil
+  def opts(%Mimir.RouteResponse{} = resp, _opts) do
+    raise ArgumentError,
+          "route response has no placement (verdict: #{inspect(resp.verdict)})"
+  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

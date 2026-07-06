@@ -1,21 +1,24 @@
 defmodule Mimir.SessionsTest do
   use ExUnit.Case, async: false
 
-  @resp %{
-    verdict: "placement",
-    placement: %{
-      lane: "anthropic",
-      model: "anthropic:claude-sonnet-4-6",
-      runtime: "managed",
-      reasons: [],
-      candidates: []
-    },
-    grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
-    workflow_id: "wf1",
-    step_id: "s1",
-    decision_id: "rd_1",
-    snapshot_at: "2026-07-04T00:00:00Z"
-  }
+  @resp (fn ->
+           {:ok, r} =
+             Mimir.RouteResponse.new(%{
+               verdict: "placement",
+               placement: %{
+                 lane: "anthropic",
+                 model: "anthropic:claude-sonnet-4-6",
+                 runtime: "managed"
+               },
+               grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
+               workflow_id: "wf1",
+               step_id: "s1",
+               decision_id: "rd_1",
+               snapshot_at: "2026-07-04T00:00:00Z"
+             })
+
+           r
+         end).()
 
   setup do
     Application.put_env(:mimir, :pricing, %{
@@ -75,40 +78,8 @@ defmodule Mimir.SessionsTest do
              opts[:turn_guard].(%{usage: %{input_tokens: 1, output_tokens: 1}, turns: 2})
   end
 
-  test "raises at composition time on no_candidate or malformed responses" do
-    assert_raise ArgumentError, ~r/no placement/, fn ->
-      Mimir.Sessions.opts(%{@resp | verdict: "no_candidate", placement: nil})
-    end
-
-    assert_raise ArgumentError, ~r/no grant/, fn ->
-      Mimir.Sessions.opts(%{@resp | grant: nil})
-    end
-
-    assert_raise ArgumentError, ~r/grant has no key/, fn ->
-      Mimir.Sessions.opts(%{@resp | grant: %{budget_microdollars: 1}})
-    end
-
-    assert_raise ArgumentError, ~r/no model/, fn ->
-      Mimir.Sessions.opts(%{@resp | placement: Map.delete(@resp.placement, :model)})
-    end
-  end
-
-  test "accepts string-keyed responses (raw JSON that skipped the client)" do
-    resp = %{
-      "verdict" => "placement",
-      "placement" => %{
-        "model" => "anthropic:claude-sonnet-4-6",
-        "lane" => "anthropic",
-        "runtime" => "managed"
-      },
-      "grant" => %{"key" => "vk-g", "budget_microdollars" => 10},
-      "workflow_id" => "wf",
-      "step_id" => "s",
-      "decision_id" => "rd"
-    }
-
-    opts = Mimir.Sessions.opts(resp, base_url: "https://x/v1")
-    assert opts[:model_config].api_key == "vk-g"
-    assert opts[:model_config].model == "anthropic:claude-sonnet-4-6"
+  test "raises at composition time when the verdict is not a placement" do
+    {:ok, nc} = Mimir.RouteResponse.new(%{verdict: "no_candidate", reasons: ["health"]})
+    assert_raise ArgumentError, ~r/no placement/, fn -> Mimir.Sessions.opts(nc) end
   end
 end

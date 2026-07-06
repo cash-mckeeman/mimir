@@ -17,13 +17,13 @@ defmodule Mimir.GuardTest do
 
   describe "for_grant/3" do
     test "continues while priced cost is under budget" do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 50_000}, @model)
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 50_000}, @model)
       # 1000 in + 1000 out = 3_000 + 15_000 = 18_000 µ$
       assert guard.(state(1_000, 1_000)) == :cont
     end
 
     test "halts with budget_exceeded at/over budget" do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 18_000}, @model)
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 18_000}, @model)
 
       assert {:halt, {:budget_exceeded, info}} = guard.(state(1_000, 1_000))
       assert info.cost_microdollars == 18_000
@@ -31,18 +31,18 @@ defmodule Mimir.GuardTest do
       assert info.usage == %{input_tokens: 1_000, output_tokens: 1_000}
     end
 
-    test "accepts string-keyed usage and string-keyed grant" do
-      guard = Mimir.Guard.for_grant(%{"budget_microdollars" => 18_000}, @model)
+    test "accepts string-keyed usage" do
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 18_000}, @model)
 
       assert {:halt, {:budget_exceeded, _}} =
                guard.(%{usage: %{"input_tokens" => 1_000, "output_tokens" => 1_000}, turns: 1})
     end
 
     test "nil or missing budget never halts on cost" do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: nil}, @model)
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: nil}, @model)
       assert guard.(state(9_999_999, 9_999_999)) == :cont
 
-      guard = Mimir.Guard.for_grant(%{}, @model)
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk"}, @model)
       assert guard.(state(9_999_999, 9_999_999)) == :cont
     end
 
@@ -59,7 +59,8 @@ defmodule Mimir.GuardTest do
 
       on_exit(fn -> :telemetry.detach("guard-miss-#{inspect(ref)}") end)
 
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 10}, "unknown:model")
+      guard =
+        Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 10}, "unknown:model")
 
       task =
         Task.async(fn ->
@@ -73,13 +74,17 @@ defmodule Mimir.GuardTest do
     end
 
     test "grant guard composes with cap opts" do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 1_000_000}, @model, max_turns: 3)
+      guard =
+        Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 1_000_000}, @model,
+          max_turns: 3
+        )
+
       assert guard.(state(1, 1, 2)) == :cont
       assert {:halt, {:max_turns, %{turns: 3, max: 3}}} = guard.(state(1, 1, 3))
     end
 
     test "never raises on non-map or non-integer usage (degrades to :cont)" do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 18_000}, @model)
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 18_000}, @model)
 
       # non-map usage
       assert guard.(%{usage: nil, turns: 1}) == :cont

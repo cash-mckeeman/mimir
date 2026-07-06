@@ -97,9 +97,9 @@ snapshot = Mimir.Snapshot.assemble([])
 # `Policy{}` with no `allowed_models` means no policy-level restriction beyond
 # what the descriptor and snapshot already filter on.
 case Mimir.Oracle.decide(descriptor, Mimir.Catalog.entries(), %Mimir.Oracle.Policy{}, snapshot) do
-  {:placement, placement} ->
-    IO.puts("\nplacement: #{placement.entry.id} (#{placement.entry.model})")
-    IO.puts("reasons:   #{Enum.join(placement.reasons, ", ")}")
+  {:decision, decision} ->
+    IO.puts("\nplacement: #{decision.entry.id} (#{decision.entry.model})")
+    IO.puts("reasons:   #{Enum.join(decision.reasons, ", ")}")
 
     # `grant_id` is nil here on purpose: a grant is a minted key's UUID, and
     # minting keys is the embedder's job (typically a fleet-scale gateway).
@@ -108,7 +108,7 @@ case Mimir.Oracle.decide(descriptor, Mimir.Catalog.entries(), %Mimir.Oracle.Poli
     record =
       Mimir.DecisionRecord.build(
         descriptor,
-        {:placement, placement},
+        {:decision, decision},
         nil,
         %{workflow_id: "wf_demo_001", step_id: "step_extract"},
         snapshot
@@ -138,8 +138,8 @@ case Mimir.Oracle.decide(
        %Mimir.Oracle.Policy{},
        all_degraded_snapshot
      ) do
-  {:placement, placement} ->
-    IO.puts("\n(unexpected) placement: #{placement.entry.id}")
+  {:decision, decision} ->
+    IO.puts("\n(unexpected) placement: #{decision.entry.id}")
 
   {:no_candidate, reasons, candidates} ->
     IO.puts("\nno_candidate (all lanes degraded): #{inspect(reasons)}")
@@ -166,8 +166,8 @@ case Mimir.Oracle.decide(
        %Mimir.Oracle.Policy{},
        snapshot
      ) do
-  {:placement, placement} ->
-    IO.puts("\n(unexpected) placement: #{placement.entry.id}")
+  {:decision, decision} ->
+    IO.puts("\n(unexpected) placement: #{decision.entry.id}")
 
   {:no_candidate, reasons, _candidates} ->
     IO.puts("\nno_candidate (tight budget + missing capabilities): #{inspect(reasons)}")

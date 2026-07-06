@@ -1,11 +1,11 @@
 defmodule Mimir.DecisionRecord do
   @moduledoc """
-  Pure builder for a routing-decision audit record. Returns a binary-keyed
-  map suitable for appending as a turn event. No Repo, no clock beyond
-  accepting the snapshot's `snapshot_at`.
+  Typed routing-decision record. `build/5` returns a `%DecisionRecord{}`;
+  `to_event/1` renders the binary-keyed audit map suitable for appending as a
+  turn event. No Repo, no clock beyond accepting the snapshot's `snapshot_at`.
 
   ## Key conventions
-  - All map keys are strings (binary), never atoms.
+  - `to_event/1` map keys are strings (binary), never atoms.
   - Grant id is the caller-supplied grant key's UUID string. The plaintext
     bearer token is NEVER included.
   - Snapshot summary: only `snapshot_at` + a list of degraded lanes — the full
@@ -14,36 +14,68 @@ defmodule Mimir.DecisionRecord do
   - `decision_id`: `"rd_"` prefix + 26-char lowercase base32 of 16 random bytes.
   """
 
-  alias Mimir.{Descriptor, Oracle.Placement, Snapshot}
+  alias Mimir.{Candidate, Descriptor, Oracle.Decision, Snapshot}
+
+  @enforce_keys [:decision_id, :descriptor, :snapshot, :verdict]
+  defstruct [:decision_id, :workflow_id, :step_id, :grant_id, :descriptor, :snapshot, :verdict]
+
+  @type verdict :: {:decision, Decision.t()} | {:no_candidate, [term()], [Candidate.t()]}
+  @type t :: %__MODULE__{
+          decision_id: String.t(),
+          workflow_id: String.t() | nil,
+          step_id: String.t() | nil,
+          grant_id: String.t() | nil,
+          descriptor: Descriptor.t(),
+          snapshot: Snapshot.t(),
+          verdict: verdict()
+        }
 
   @doc """
-  Build a binary-keyed routing decision map.
+  Build a `%DecisionRecord{}` carrying the source data for a routing decision.
 
   Arguments:
   - `descriptor` — the `%Descriptor{}` the oracle was called with.
-  - `verdict` — `{:placement, %Placement{}}` or `{:no_candidate, reasons, candidates}`.
+  - `verdict` — `{:decision, %Decision{}}` or `{:no_candidate, reasons, candidates}`.
   - `grant_id` — the minted grant key's UUID string (never the plaintext bearer token), or nil.
   - `ids` — `%{workflow_id: string, step_id: string}` (the correlation ids).
   - `snapshot` — the `%Snapshot{}` used for the decision.
 
-  Returns a binary-keyed map ready to append as a `routing_decision` turn event.
+  Render with `to_event/1` to get the binary-keyed map ready to append as a
+  `routing_decision` turn event.
   """
   @spec build(
           Descriptor.t(),
-          {:placement, Placement.t()} | {:no_candidate, [term()], [map()]},
+          verdict(),
           String.t() | nil,
           %{workflow_id: String.t() | nil, step_id: String.t() | nil},
           Snapshot.t()
-        ) :: map()
+        ) :: t()
   def build(%Descriptor{} = descriptor, verdict, grant_or_nil, ids, %Snapshot{} = snapshot) do
+    %__MODULE__{
+      decision_id: gen_decision_id(),
+      workflow_id: ids[:workflow_id],
+      step_id: ids[:step_id],
+      grant_id: grant_id(grant_or_nil),
+      descriptor: descriptor,
+      snapshot: snapshot,
+      verdict: verdict
+    }
+  end
+
+  @doc """
+  Render a `%DecisionRecord{}` as the binary-keyed audit map ready to append
+  as a `routing_decision` turn event.
+  """
+  @spec to_event(t()) :: map()
+  def to_event(%__MODULE__{} = rec) do
     %{
-      "decision_id" => gen_decision_id(),
-      "workflow_id" => ids[:workflow_id],
-      "step_id" => ids[:step_id],
-      "grant_id" => grant_id(grant_or_nil),
-      "descriptor" => descriptor_echo(descriptor),
-      "snapshot" => snapshot_summary(snapshot),
-      "verdict" => encode_verdict(verdict)
+      "decision_id" => rec.decision_id,
+      "workflow_id" => rec.workflow_id,
+      "step_id" => rec.step_id,
+      "grant_id" => rec.grant_id,
+      "descriptor" => descriptor_echo(rec.descriptor),
+      "snapshot" => snapshot_summary(rec.snapshot),
+      "verdict" => encode_verdict(rec.verdict)
     }
   end
 
@@ -87,13 +119,13 @@ defmodule Mimir.DecisionRecord do
     }
   end
 
-  defp encode_verdict({:placement, %Placement{} = p}) do
+  defp encode_verdict({:decision, %Decision{} = dec}) do
     %{
       "outcome" => "placement",
-      "model" => p.entry.model,
-      "lane" => to_string(p.entry.lane),
-      "reasons" => p.reasons,
-      "candidates" => encode_candidates(p.candidates)
+      "model" => dec.entry.model,
+      "lane" => to_string(dec.entry.lane),
+      "reasons" => dec.reasons,
+      "candidates" => encode_candidates(dec.candidates)
     }
   end
 
@@ -107,13 +139,13 @@ defmodule Mimir.DecisionRecord do
 
   defp encode_candidates(candidates) when is_list(candidates) do
     Enum.map(candidates, fn
-      %{id: id, verdict: :chosen} ->
+      %Candidate{id: id, verdict: :chosen} ->
         %{"id" => id, "verdict" => "chosen"}
 
-      %{id: id, verdict: :ranked} ->
+      %Candidate{id: id, verdict: :ranked} ->
         %{"id" => id, "verdict" => "ranked"}
 
-      %{id: id, verdict: {:excluded, reason}} ->
+      %Candidate{id: id, verdict: {:excluded, reason}} ->
         %{"id" => id, "verdict" => "excluded", "reason" => inspect(reason)}
     end)
   end

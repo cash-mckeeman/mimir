@@ -61,7 +61,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     TurnEvents
   }
 
-  alias Mimir.Oracle.{Placement, Policy}
+  alias Mimir.Oracle.{Decision, Policy}
   alias Mimir.TurnEvents.GenAI
 
   @model "anthropic:claude-sonnet-4-6"
@@ -195,7 +195,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     entries = Catalog.entries(@catalog_config)
     healthy = Snapshot.assemble(pricing: @rates)
 
-    {:placement, %Placement{entry: chosen}} = Oracle.decide(d, entries, %Policy{}, healthy)
+    {:decision, %Decision{entry: chosen}} = Oracle.decide(d, entries, %Policy{}, healthy)
     true = chosen.model == @model
 
     {:no_candidate, _reasons, _candidates} = Oracle.decide(d, [], %Policy{}, healthy)
@@ -217,16 +217,18 @@ defmodule Mix.Tasks.Mimir.Smoke do
 
     entries = Catalog.entries(@catalog_config)
     snapshot = Snapshot.assemble(pricing: @rates)
-    {:placement, placement} = Oracle.decide(d, entries, %Policy{}, snapshot)
+    {:decision, decision} = Oracle.decide(d, entries, %Policy{}, snapshot)
 
-    record =
+    rec =
       DecisionRecord.build(
         d,
-        {:placement, placement},
+        {:decision, decision},
         "grant-uuid-1",
         %{workflow_id: "wf", step_id: "s1"},
         snapshot
       )
+
+    record = DecisionRecord.to_event(rec)
 
     "rd_" <> _ = record["decision_id"]
     true = record["grant_id"] == "grant-uuid-1"
@@ -238,18 +240,37 @@ defmodule Mix.Tasks.Mimir.Smoke do
   defp route_log_stage do
     "req_route_" <> _ = RouteLog.gen_request_id()
 
+    {:ok, d} =
+      Descriptor.parse(%{
+        task_class: "extraction",
+        budget_ceiling_microdollars: 50_000,
+        latency_tolerance_ms: 30_000
+      })
+
+    snapshot = Snapshot.assemble(pricing: @rates)
+
+    decision_record =
+      DecisionRecord.build(
+        d,
+        {:no_candidate, [], []},
+        nil,
+        %{workflow_id: "wf", step_id: "s1"},
+        snapshot
+      )
+
     log = %Mimir.RouteLog{
       request_id: "req_route_smoke",
       caller: %{id: "vk-uuid", tenant_id: "t1"},
       correlation: %{workflow_id: "wf", step_id: "s1", parent_step_id: nil},
       outcome: {:grant_failed, :parent_exhausted},
-      decision_record: %{"decision_id" => "rd_smoke"}
+      decision_record: decision_record
     }
 
     meta = RouteLog.to_meta(log, 0)
     true = meta.status == "error"
     true = meta.error_class == "grant_failed"
-    [%{"type" => "routing_decision"}] = meta.gen_ai_events
+    [%{"type" => "routing_decision", "gen_ai" => payload}] = meta.gen_ai_events
+    "rd_" <> _ = payload["decision_id"]
     {:ok, "grant_failed meta + routing_decision envelope"}
   end
 
@@ -346,6 +367,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
             plug: fn conn -> Req.Test.json(conn, body) end
           )
 
+        true = resp.verdict == :placement
         true = resp.placement.model == @model
         true = resp.grant.key == "vk-grant"
 
@@ -356,7 +378,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
             plug: fn conn -> Plug.Conn.send_resp(conn, 409, "{}") end
           )
 
-        {:ok, "placement atomized; 409 mapped to http_error"}
+        {:ok, "placement parsed to struct; 409 mapped to http_error"}
       else
         {:skip, "compiled under MIX_ENV=test but Req.Test is not loaded at runtime"}
       end
@@ -388,7 +410,9 @@ defmodule Mix.Tasks.Mimir.Smoke do
     Application.put_env(:mimir, :pricing, @rates)
 
     try do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 18_000}, @model)
+      guard =
+        Mimir.Guard.for_grant(%Mimir.Grant{key: "vk-grant", budget_microdollars: 18_000}, @model)
+
       :cont = guard.(%{usage: %{input_tokens: 10, output_tokens: 10}, turns: 1})
 
       {:halt, {:budget_exceeded, _}} =
@@ -406,29 +430,24 @@ defmodule Mix.Tasks.Mimir.Smoke do
   end
 
   defp sessions_stage do
-    resp = %{
-      verdict: "placement",
-      placement: %{
-        lane: "anthropic",
-        model: @model,
-        runtime: "managed",
-        reasons: [],
-        candidates: []
-      },
-      grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
-      workflow_id: "wf",
-      step_id: "s1",
-      decision_id: "rd_smoke",
-      snapshot_at: "2026-07-04T00:00:00Z"
-    }
+    {:ok, resp} =
+      Mimir.RouteResponse.new(%{
+        verdict: "placement",
+        placement: %{lane: "anthropic", model: @model, runtime: "managed"},
+        grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
+        workflow_id: "wf",
+        step_id: "s1",
+        decision_id: "rd_smoke",
+        snapshot_at: "2026-07-04T00:00:00Z"
+      })
 
     opts = Mimir.Sessions.opts(resp, base_url: "https://gw.example/v1", request_id: "req_smoke")
     true = opts[:model_config].api_key == "vk-grant"
     true = opts[:telemetry_metadata].decision_id == "rd_smoke"
     true = is_function(opts[:turn_guard], 1)
 
-    # Ingest: the recipe's correlation flows into buffered events.
     ctx = Mimir.Ingest.from_route(resp, "req_smoke")
+
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hi"})
     [event] = Mimir.TurnEvents.take("req_smoke")
     true = event["gen_ai"]["decision_id"] == "rd_smoke"

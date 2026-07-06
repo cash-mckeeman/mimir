@@ -19,7 +19,7 @@ Add `mimir` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mimir, "~> 0.2.0"}
+    {:mimir, "~> 0.3.0"}
   ]
 end
 ```
@@ -33,11 +33,15 @@ end
 | `Mimir.Catalog` | Config-sourced routable entries, with an injectable model resolver seam. |
 | `Mimir.Snapshot` | Explicit-inputs operational snapshot the oracle ranks against (pricing, health, budget). |
 | `Mimir.Health` | Failure-streak table for router lanes, driven by telemetry. |
-| `Mimir.DecisionRecord` | Pure builder for a binary-keyed routing-decision audit record. |
+| `Mimir.DecisionRecord` | Typed routing-decision record; `to_event/1` renders the binary-keyed audit map. |
 | `Mimir.RouteLog` | Typed route outcome plus a request-log meta builder. |
 | `Mimir.Pricing` | Token usage to integer microdollar cost, config-first over a vendored LiteLLM pricing DB. |
 | `Mimir.TurnEvents` | Per-request ordered `gen_ai.*` event buffer. |
-| `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. |
+| `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. Returns a parsed `%Mimir.RouteResponse{}`. |
+| `Mimir.RouteResponse` | Parsed routing-call result; `new/1` is the single boundary from wire map to struct. |
+| `Mimir.Grant` | Minted routing grant: key, budget, expiry. |
+| `Mimir.Placement` | Flat chosen-model placement: lane, model, runtime. |
+| `Mimir.Candidate` | One catalog entry's routing verdict: chosen, ranked, or excluded. |
 | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
 | `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
 | `Mimir.Ingest` | Decision-correlated ingestion of raw session events into `Mimir.TurnEvents`. |
@@ -132,7 +136,7 @@ config :mimir, :pricing, %{
 snapshot = Mimir.Snapshot.assemble([])   # degenerate: all lanes healthy, config pricing
 
 case Mimir.Oracle.decide(descriptor, Mimir.Catalog.entries(), %Mimir.Oracle.Policy{}, snapshot) do
-  {:placement, placement} -> run_step_on(placement.entry)
+  {:decision, decision} -> run_step_on(decision.entry)
   {:no_candidate, reasons, _candidates} -> handle_no_candidate(reasons)
 end
 ```
@@ -146,6 +150,26 @@ turn_guard = Mimir.Guard.caps(max_cost_microdollars: 50_000, model: "anthropic:c
 
 See [Governance composition](#governance-composition) below for the grant-backed
 form and the rest of the composition layer.
+
+## Routing vocabulary
+
+`c:Mimir.RouterClient.route/2` returns `{:ok, %Mimir.RouteResponse{}}` — a
+parsed struct, never a raw map. `RouteResponse.new/1` is the single boundary
+where a decoded wire response becomes mimir's struct vocabulary:
+
+- `Mimir.RouteResponse` — the top-level parsed result: `verdict`
+  (`:placement | :no_candidate`), the chosen `placement` and `grant` (if
+  any), and the candidate verdict table.
+- `Mimir.Placement` — the flat chosen-model placement: `lane`, `model`,
+  `runtime`.
+- `Mimir.Grant` — the minted routing grant: `key`, `budget_microdollars`,
+  `expires_at`.
+- `Mimir.Candidate` — one catalog entry's verdict: `:chosen`, `:ranked`, or
+  `{:excluded, reason}`.
+
+Everything downstream — `Mimir.Sessions.opts/2`, `Mimir.Guard.for_grant/3`,
+`Mimir.Ingest.from_route/2` — consumes these structs directly; none of them
+touch a raw route map.
 
 ## Governance composition
 
@@ -167,6 +191,7 @@ single route response:
 
 ```elixir
 {:ok, resp} = Mimir.RouterClient.route(descriptor, client_opts)
+# resp is a %Mimir.RouteResponse{} — see Routing vocabulary, above
 session_opts = Mimir.Sessions.opts(resp, base_url: gateway_url)
 Session.run(provider, session_opts ++ [handler: MyTools, prompt: prompt])
 ```
