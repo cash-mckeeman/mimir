@@ -97,7 +97,7 @@ snapshot = Mimir.Snapshot.assemble([])
 # `Policy{}` with no `allowed_models` means no policy-level restriction beyond
 # what the descriptor and snapshot already filter on.
 case Mimir.Oracle.decide(descriptor, Mimir.Catalog.entries(), %Mimir.Oracle.Policy{}, snapshot) do
-  {:placement, placement} ->
+  {:decision, placement} ->
     IO.puts("\nplacement: #{placement.entry.id} (#{placement.entry.model})")
     IO.puts("reasons:   #{Enum.join(placement.reasons, ", ")}")
 
@@ -108,7 +108,7 @@ case Mimir.Oracle.decide(descriptor, Mimir.Catalog.entries(), %Mimir.Oracle.Poli
     record =
       Mimir.DecisionRecord.build(
         descriptor,
-        {:placement, placement},
+        {:decision, placement},
         nil,
         %{workflow_id: "wf_demo_001", step_id: "step_extract"},
         snapshot
@@ -138,7 +138,7 @@ case Mimir.Oracle.decide(
        %Mimir.Oracle.Policy{},
        all_degraded_snapshot
      ) do
-  {:placement, placement} ->
+  {:decision, placement} ->
     IO.puts("\n(unexpected) placement: #{placement.entry.id}")
 
   {:no_candidate, reasons, candidates} ->
@@ -166,7 +166,7 @@ case Mimir.Oracle.decide(
        %Mimir.Oracle.Policy{},
        snapshot
      ) do
-  {:placement, placement} ->
+  {:decision, placement} ->
     IO.puts("\n(unexpected) placement: #{placement.entry.id}")
 
   {:no_candidate, reasons, _candidates} ->

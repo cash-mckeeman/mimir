@@ -1,8 +1,8 @@
 defmodule Mimir.RouteLogTest do
   use ExUnit.Case, async: true
 
-  alias Mimir.{Catalog.Entry, DecisionRecord, Descriptor, RouteLog, Snapshot}
-  alias Mimir.Oracle.Placement
+  alias Mimir.{Candidate, Catalog.Entry, DecisionRecord, Descriptor, RouteLog, Snapshot}
+  alias Mimir.Oracle.Decision
 
   defp record do
     {:ok, descriptor} =
@@ -12,7 +12,7 @@ defmodule Mimir.RouteLogTest do
         latency_tolerance_ms: 30_000
       })
 
-    placement = %Placement{
+    placement = %Decision{
       entry: %Entry{
         id: "haiku-managed",
         model: "anthropic:claude-haiku-4-5",
@@ -21,7 +21,7 @@ defmodule Mimir.RouteLogTest do
         runtime: :managed
       },
       reasons: ["capability_match"],
-      candidates: [%{id: "haiku-managed", verdict: :chosen}]
+      candidates: [%Candidate{id: "haiku-managed", verdict: :chosen}]
     }
 
     snapshot = %Snapshot{
@@ -34,7 +34,7 @@ defmodule Mimir.RouteLogTest do
 
     DecisionRecord.build(
       descriptor,
-      {:placement, placement},
+      {:decision, placement},
       nil,
       %{workflow_id: "wf_1", step_id: "step_1"},
       snapshot

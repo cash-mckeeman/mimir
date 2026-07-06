@@ -13,7 +13,7 @@ defmodule Mimir.Oracle do
   it always passes the cost filter and ranks as the cheapest candidate, so
   keep the pricing map complete for every entry you want cost-ranked honestly.
   """
-  alias Mimir.{Catalog.Entry, Descriptor, Snapshot}
+  alias Mimir.{Candidate, Catalog.Entry, Descriptor, Snapshot}
 
   defmodule Policy do
     @moduledoc "Routing constraints layered on top of the catalog itself."
@@ -21,7 +21,7 @@ defmodule Mimir.Oracle do
     @type t :: %__MODULE__{allowed_models: [String.t()]}
   end
 
-  defmodule Placement do
+  defmodule Decision do
     @moduledoc "A chosen entry, why it was chosen, and every candidate's verdict."
     @enforce_keys [:entry, :reasons, :candidates]
     defstruct [:entry, :reasons, :candidates]
@@ -29,17 +29,17 @@ defmodule Mimir.Oracle do
     @type t :: %__MODULE__{
             entry: Mimir.Catalog.Entry.t(),
             reasons: [String.t()],
-            candidates: [map()]
+            candidates: [Mimir.Candidate.t()]
           }
   end
 
   @doc """
   Filter `entries` against `descriptor`, `policy`, and `snapshot`, then rank
-  the viable candidates. Returns the chosen placement plus every candidate's
+  the viable candidates. Returns the chosen decision plus every candidate's
   verdict, or `:no_candidate` with the distinct exclusion reasons.
   """
   @spec decide(Descriptor.t(), [Entry.t()], Policy.t(), Snapshot.t()) ::
-          {:placement, Placement.t()} | {:no_candidate, [term()], [map()]}
+          {:decision, Decision.t()} | {:no_candidate, [term()], [Candidate.t()]}
   def decide(%Descriptor{} = d, entries, %Policy{} = policy, %Snapshot{} = snap) do
     judged = Enum.map(entries, fn e -> {e, judge(e, d, policy, snap)} end)
 
@@ -51,8 +51,8 @@ defmodule Mimir.Oracle do
         ranked = Enum.sort_by(viable, fn {e, _} -> rank_key(e, d, snap) end)
         {chosen, _} = hd(ranked)
 
-        {:placement,
-         %Placement{
+        {:decision,
+         %Decision{
            entry: chosen,
            reasons: placement_reasons(chosen, d),
            candidates: verdict_table(judged, chosen.id)
@@ -142,9 +142,9 @@ defmodule Mimir.Oracle do
 
   defp verdict_table(judged, chosen_id) do
     Enum.map(judged, fn
-      {e, :viable} when e.id == chosen_id -> %{id: e.id, verdict: :chosen}
-      {e, :viable} -> %{id: e.id, verdict: :ranked}
-      {e, {:excluded, _} = ex} -> %{id: e.id, verdict: ex}
+      {e, :viable} when e.id == chosen_id -> %Candidate{id: e.id, verdict: :chosen}
+      {e, :viable} -> %Candidate{id: e.id, verdict: :ranked}
+      {e, {:excluded, _} = ex} -> %Candidate{id: e.id, verdict: ex}
     end)
   end
 

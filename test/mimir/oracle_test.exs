@@ -57,7 +57,7 @@ defmodule Mimir.OracleTest do
     entries = [entry("son", "anthropic:sonnet"), entry("nem", "ollama:nemotron", runtime: :local)]
 
     # budget raised to 10M so sonnet (3M projected) is viable-but-ranked, not excluded
-    assert {:placement, placement} =
+    assert {:decision, %Mimir.Oracle.Decision{candidates: candidates} = decision} =
              Oracle.decide(
                descriptor(%{budget_ceiling_microdollars: 10_000_000}),
                entries,
@@ -65,9 +65,12 @@ defmodule Mimir.OracleTest do
                snapshot()
              )
 
-    assert placement.entry.id == "nem"
-    assert "cheapest_viable" in placement.reasons
-    verdicts = Map.new(placement.candidates, &{&1.id, &1.verdict})
+    assert Enum.all?(candidates, &match?(%Mimir.Candidate{}, &1))
+    assert Enum.any?(candidates, &match?(%Mimir.Candidate{verdict: :chosen}, &1))
+
+    assert decision.entry.id == "nem"
+    assert "cheapest_viable" in decision.reasons
+    verdicts = Map.new(decision.candidates, &{&1.id, &1.verdict})
     assert verdicts["nem"] == :chosen
     assert verdicts["son"] == :ranked
   end
@@ -76,9 +79,10 @@ defmodule Mimir.OracleTest do
     entries = [entry("son", "anthropic:sonnet", capabilities: [])]
     d = descriptor(%{capabilities: ["tools"]})
 
-    assert {:no_candidate, _reasons,
-            [%{id: "son", verdict: {:excluded, {:capability, [:tools]}}}]} =
-             Oracle.decide(d, entries, @policy, snapshot())
+    assert {:no_candidate, _reasons, cands} = Oracle.decide(d, entries, @policy, snapshot())
+    assert Enum.all?(cands, &match?(%Mimir.Candidate{}, &1))
+
+    assert [%Mimir.Candidate{id: "son", verdict: {:excluded, {:capability, [:tools]}}}] = cands
   end
 
   test "policy allowlist excludes non-listed models" do
@@ -86,7 +90,7 @@ defmodule Mimir.OracleTest do
     policy = %Oracle.Policy{allowed_models: ["anthropic:sonnet"]}
 
     # budget raised to 10M so sonnet (3M projected) passes cost and can be placed
-    assert {:placement, placement} =
+    assert {:decision, decision} =
              Oracle.decide(
                descriptor(%{budget_ceiling_microdollars: 10_000_000}),
                entries,
@@ -94,10 +98,10 @@ defmodule Mimir.OracleTest do
                snapshot()
              )
 
-    assert placement.entry.id == "son"
+    assert decision.entry.id == "son"
 
     assert Enum.any?(
-             placement.candidates,
+             decision.candidates,
              &(&1.id == "nem" and match?({:excluded, {:policy, _}}, &1.verdict))
            )
   end
@@ -106,24 +110,24 @@ defmodule Mimir.OracleTest do
     entries = [entry("son", "anthropic:sonnet"), entry("nem", "ollama:nemotron", runtime: :local)]
     d = descriptor(%{runtime_preference: "local"})
 
-    assert {:placement, %{entry: %{id: "nem"}}} = Oracle.decide(d, entries, @policy, snapshot())
+    assert {:decision, %{entry: %{id: "nem"}}} = Oracle.decide(d, entries, @policy, snapshot())
   end
 
   test "viability: projected cost over ceiling excludes; nil expected_tokens skips cost exclusion" do
     entries = [entry("son", "anthropic:sonnet")]
     # 1M input tokens at 3_000_000µ$/M = 3_000_000µ$ > 100_000 ceiling → excluded
-    assert {:no_candidate, _, [%{verdict: {:excluded, {:cost, _}}}]} =
+    assert {:no_candidate, _, [%Mimir.Candidate{verdict: {:excluded, {:cost, _}}}]} =
              Oracle.decide(descriptor(), entries, @policy, snapshot())
 
     # nil expected_tokens: no cost exclusion, sonnet places
     d = descriptor(%{expected_tokens: nil})
-    assert {:placement, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snapshot())
+    assert {:decision, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snapshot())
   end
 
   test "viability: degraded lane and over-tolerance latency exclude" do
     entries = [entry("son", "anthropic:sonnet", lane: "anthropic", p50: 5_000)]
 
-    assert {:no_candidate, _, [%{verdict: {:excluded, {:health, :degraded}}}]} =
+    assert {:no_candidate, _, [%Mimir.Candidate{verdict: {:excluded, {:health, :degraded}}}]} =
              Oracle.decide(
                descriptor(%{expected_tokens: nil}),
                entries,
@@ -133,7 +137,7 @@ defmodule Mimir.OracleTest do
 
     d = descriptor(%{latency_tolerance_ms: 1_000, expected_tokens: nil})
 
-    assert {:no_candidate, _, [%{verdict: {:excluded, {:latency, _}}}]} =
+    assert {:no_candidate, _, [%Mimir.Candidate{verdict: {:excluded, {:latency, _}}}]} =
              Oracle.decide(d, entries, @policy, snapshot())
   end
 
@@ -141,7 +145,7 @@ defmodule Mimir.OracleTest do
     entries = [entry("son", "anthropic:sonnet")]
     d = descriptor(%{budget_ceiling_microdollars: 10_000_000})
 
-    assert {:no_candidate, _, [%{verdict: {:excluded, {:cost, _}}}]} =
+    assert {:no_candidate, _, [%Mimir.Candidate{verdict: {:excluded, {:cost, _}}}]} =
              Oracle.decide(d, entries, @policy, snapshot(parent_remaining: 1_000))
   end
 
@@ -159,7 +163,7 @@ defmodule Mimir.OracleTest do
         }
       )
 
-    assert {:placement, %{entry: %{id: "b"}}} =
+    assert {:decision, %{entry: %{id: "b"}}} =
              Oracle.decide(descriptor(%{expected_tokens: nil}), entries, @policy, snap)
   end
 
@@ -177,7 +181,7 @@ defmodule Mimir.OracleTest do
         }
       )
 
-    assert {:placement, %{entry: %{id: "b"}}} =
+    assert {:decision, %{entry: %{id: "b"}}} =
              Oracle.decide(descriptor(%{expected_tokens: nil}), entries, @policy, snap)
   end
 

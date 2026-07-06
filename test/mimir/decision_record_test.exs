@@ -5,8 +5,8 @@ defmodule Mimir.DecisionRecordTest do
   """
   use ExUnit.Case, async: true
 
-  alias Mimir.{Catalog.Entry, DecisionRecord, Descriptor, Snapshot, TurnEvents}
-  alias Mimir.Oracle.Placement
+  alias Mimir.{Candidate, Catalog.Entry, DecisionRecord, Descriptor, Snapshot, TurnEvents}
+  alias Mimir.Oracle.Decision
 
   setup do
     case start_supervised(TurnEvents) do
@@ -31,7 +31,7 @@ defmodule Mimir.DecisionRecordTest do
   end
 
   defp placement do
-    %Placement{
+    %Decision{
       entry: %Entry{
         id: "haiku-managed",
         model: "anthropic:claude-haiku-4-5",
@@ -41,9 +41,9 @@ defmodule Mimir.DecisionRecordTest do
       },
       reasons: ["capability_match", "cheapest_viable"],
       candidates: [
-        %{id: "haiku-managed", verdict: :chosen},
-        %{id: "nemotron", verdict: :ranked},
-        %{id: "gpt4", verdict: {:excluded, {:capability, [:vision]}}}
+        %Candidate{id: "haiku-managed", verdict: :chosen},
+        %Candidate{id: "nemotron", verdict: :ranked},
+        %Candidate{id: "gpt4", verdict: {:excluded, {:capability, [:vision]}}}
       ]
     }
   end
@@ -67,7 +67,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           "grant-uuid-1",
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -80,14 +80,14 @@ defmodule Mimir.DecisionRecordTest do
       assert rec.grant_id == "grant-uuid-1"
       assert rec.descriptor == descriptor()
       assert rec.snapshot == snapshot()
-      assert rec.verdict == {:placement, placement()}
+      assert rec.verdict == {:decision, placement()}
     end
 
     test "decision_id has 'rd_' prefix and is 29 chars (3 + 26)" do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -103,7 +103,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -120,7 +120,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -141,7 +141,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-99", step_id: "step-z"},
           snapshot()
@@ -158,7 +158,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           grant_id,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -172,7 +172,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -186,7 +186,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -233,7 +233,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           degraded_snap
@@ -250,7 +250,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -266,7 +266,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()
@@ -288,8 +288,11 @@ defmodule Mimir.DecisionRecordTest do
       nc_verdict =
         {:no_candidate, [:capability, :cost],
          [
-           %{id: "haiku-managed", verdict: {:excluded, {:capability, [:tools]}}},
-           %{id: "nemotron", verdict: {:excluded, {:cost, %{projected: 9_999, cap: 1_000}}}}
+           %Candidate{id: "haiku-managed", verdict: {:excluded, {:capability, [:tools]}}},
+           %Candidate{
+             id: "nemotron",
+             verdict: {:excluded, {:cost, %{projected: 9_999, cap: 1_000}}}
+           }
          ]}
 
       rec =
@@ -312,7 +315,7 @@ defmodule Mimir.DecisionRecordTest do
       rec =
         DecisionRecord.build(
           descriptor(),
-          {:placement, placement()},
+          {:decision, placement()},
           nil,
           %{workflow_id: "wf-1", step_id: "step-a"},
           snapshot()

@@ -61,7 +61,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     TurnEvents
   }
 
-  alias Mimir.Oracle.{Placement, Policy}
+  alias Mimir.Oracle.{Decision, Policy}
   alias Mimir.TurnEvents.GenAI
 
   @model "anthropic:claude-sonnet-4-6"
@@ -195,7 +195,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     entries = Catalog.entries(@catalog_config)
     healthy = Snapshot.assemble(pricing: @rates)
 
-    {:placement, %Placement{entry: chosen}} = Oracle.decide(d, entries, %Policy{}, healthy)
+    {:decision, %Decision{entry: chosen}} = Oracle.decide(d, entries, %Policy{}, healthy)
     true = chosen.model == @model
 
     {:no_candidate, _reasons, _candidates} = Oracle.decide(d, [], %Policy{}, healthy)
@@ -217,12 +217,12 @@ defmodule Mix.Tasks.Mimir.Smoke do
 
     entries = Catalog.entries(@catalog_config)
     snapshot = Snapshot.assemble(pricing: @rates)
-    {:placement, placement} = Oracle.decide(d, entries, %Policy{}, snapshot)
+    {:decision, placement} = Oracle.decide(d, entries, %Policy{}, snapshot)
 
     rec =
       DecisionRecord.build(
         d,
-        {:placement, placement},
+        {:decision, placement},
         "grant-uuid-1",
         %{workflow_id: "wf", step_id: "s1"},
         snapshot

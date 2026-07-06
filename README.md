@@ -132,7 +132,7 @@ config :mimir, :pricing, %{
 snapshot = Mimir.Snapshot.assemble([])   # degenerate: all lanes healthy, config pricing
 
 case Mimir.Oracle.decide(descriptor, Mimir.Catalog.entries(), %Mimir.Oracle.Policy{}, snapshot) do
-  {:placement, placement} -> run_step_on(placement.entry)
+  {:decision, decision} -> run_step_on(decision.entry)
   {:no_candidate, reasons, _candidates} -> handle_no_candidate(reasons)
 end
 ```

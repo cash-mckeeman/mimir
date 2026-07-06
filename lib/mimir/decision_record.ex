@@ -14,12 +14,12 @@ defmodule Mimir.DecisionRecord do
   - `decision_id`: `"rd_"` prefix + 26-char lowercase base32 of 16 random bytes.
   """
 
-  alias Mimir.{Descriptor, Oracle.Placement, Snapshot}
+  alias Mimir.{Candidate, Descriptor, Oracle.Decision, Snapshot}
 
   @enforce_keys [:decision_id, :descriptor, :snapshot, :verdict]
   defstruct [:decision_id, :workflow_id, :step_id, :grant_id, :descriptor, :snapshot, :verdict]
 
-  @type verdict :: {:placement, Placement.t()} | {:no_candidate, [term()], [map()]}
+  @type verdict :: {:decision, Decision.t()} | {:no_candidate, [term()], [Candidate.t()]}
   @type t :: %__MODULE__{
           decision_id: String.t(),
           workflow_id: String.t() | nil,
@@ -35,7 +35,7 @@ defmodule Mimir.DecisionRecord do
 
   Arguments:
   - `descriptor` — the `%Descriptor{}` the oracle was called with.
-  - `verdict` — `{:placement, %Placement{}}` or `{:no_candidate, reasons, candidates}`.
+  - `verdict` — `{:decision, %Decision{}}` or `{:no_candidate, reasons, candidates}`.
   - `grant_id` — the minted grant key's UUID string (never the plaintext bearer token), or nil.
   - `ids` — `%{workflow_id: string, step_id: string}` (the correlation ids).
   - `snapshot` — the `%Snapshot{}` used for the decision.
@@ -119,13 +119,13 @@ defmodule Mimir.DecisionRecord do
     }
   end
 
-  defp encode_verdict({:placement, %Placement{} = p}) do
+  defp encode_verdict({:decision, %Decision{} = dec}) do
     %{
       "outcome" => "placement",
-      "model" => p.entry.model,
-      "lane" => to_string(p.entry.lane),
-      "reasons" => p.reasons,
-      "candidates" => encode_candidates(p.candidates)
+      "model" => dec.entry.model,
+      "lane" => to_string(dec.entry.lane),
+      "reasons" => dec.reasons,
+      "candidates" => encode_candidates(dec.candidates)
     }
   end
 
@@ -139,13 +139,13 @@ defmodule Mimir.DecisionRecord do
 
   defp encode_candidates(candidates) when is_list(candidates) do
     Enum.map(candidates, fn
-      %{id: id, verdict: :chosen} ->
+      %Candidate{id: id, verdict: :chosen} ->
         %{"id" => id, "verdict" => "chosen"}
 
-      %{id: id, verdict: :ranked} ->
+      %Candidate{id: id, verdict: :ranked} ->
         %{"id" => id, "verdict" => "ranked"}
 
-      %{id: id, verdict: {:excluded, reason}} ->
+      %Candidate{id: id, verdict: {:excluded, reason}} ->
         %{"id" => id, "verdict" => "excluded", "reason" => inspect(reason)}
     end)
   end
