@@ -34,6 +34,6 @@ defmodule Mimir.SmokeTest do
                "  [FAIL] #{name} — #{detail}"
              end)
 
-    assert length(results) >= 9
+    assert length(results) >= 11
   end
 end
