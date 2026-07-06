@@ -12,7 +12,7 @@ defmodule Mimir.RouteLogTest do
         latency_tolerance_ms: 30_000
       })
 
-    placement = %Decision{
+    decision = %Decision{
       entry: %Entry{
         id: "haiku-managed",
         model: "anthropic:claude-haiku-4-5",
@@ -34,7 +34,7 @@ defmodule Mimir.RouteLogTest do
 
     DecisionRecord.build(
       descriptor,
-      {:decision, placement},
+      {:decision, decision},
       nil,
       %{workflow_id: "wf_1", step_id: "step_1"},
       snapshot

@@ -19,7 +19,7 @@ defmodule Mimir.RouterClient.HTTPTest do
     "snapshot_at" => "2026-07-04T00:00:00Z"
   }
 
-  test "route/2 atomizes a placement response" do
+  test "route/2 parses a placement response into a RouteResponse" do
     plug = fn conn -> Req.Test.json(conn, @placement_body) end
 
     assert {:ok, %Mimir.RouteResponse{} = resp} =

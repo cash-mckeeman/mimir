@@ -217,12 +217,12 @@ defmodule Mix.Tasks.Mimir.Smoke do
 
     entries = Catalog.entries(@catalog_config)
     snapshot = Snapshot.assemble(pricing: @rates)
-    {:decision, placement} = Oracle.decide(d, entries, %Policy{}, snapshot)
+    {:decision, decision} = Oracle.decide(d, entries, %Policy{}, snapshot)
 
     rec =
       DecisionRecord.build(
         d,
-        {:decision, placement},
+        {:decision, decision},
         "grant-uuid-1",
         %{workflow_id: "wf", step_id: "s1"},
         snapshot
