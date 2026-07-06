@@ -15,11 +15,15 @@ defmodule Mimir do
   | `Mimir.Catalog` | Config-sourced routable entries, with an injectable model resolver seam. |
   | `Mimir.Snapshot` | Explicit-inputs operational snapshot the oracle ranks against (pricing, health, budget). |
   | `Mimir.Health` | Failure-streak table for router lanes, driven by telemetry. |
-  | `Mimir.DecisionRecord` | Pure builder for a binary-keyed routing-decision audit record. |
+  | `Mimir.DecisionRecord` | Typed routing-decision record; `to_event/1` renders the binary-keyed audit map. |
   | `Mimir.RouteLog` | Typed route outcome plus a request-log meta builder. |
   | `Mimir.Pricing` | Token usage to integer microdollar cost, config-first over a vendored LiteLLM pricing DB. |
   | `Mimir.TurnEvents` | Per-request ordered `gen_ai.*` event buffer. |
-  | `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. |
+  | `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. Returns a parsed `%Mimir.RouteResponse{}`. |
+  | `Mimir.RouteResponse` | Parsed routing-call result; `new/1` is the single boundary from wire map to struct. |
+  | `Mimir.Grant` | Minted routing grant: key, budget, expiry. |
+  | `Mimir.Placement` | Flat chosen-model placement: lane, model, runtime. |
+  | `Mimir.Candidate` | One catalog entry's routing verdict: chosen, ranked, or excluded. |
   | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
   | `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
   | `Mimir.Ingest` | Decision-correlated ingestion of raw session events into `Mimir.TurnEvents`. |

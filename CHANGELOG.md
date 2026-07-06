@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.3.0 (2026-07-06)
+
+Replaces the routing layer's bare-map vocabulary with typed structs, parsed at
+a single boundary.
+
+- `Mimir.RouteResponse` — the parsed result of a routing call, with `new/1` as
+  the single boundary where a decoded (atom- or string-keyed) wire response
+  becomes mimir's struct vocabulary. `c:Mimir.RouterClient.route/2` now returns
+  `{:ok, %RouteResponse{}}` directly — no ad-hoc atomization downstream.
+- `Mimir.Grant`, `Mimir.Placement`, `Mimir.Candidate` — the leaf structs
+  `RouteResponse.new/1` parses onto: a minted grant (key, budget, expiry), the
+  flat chosen-model placement (lane, model, runtime), and one catalog entry's
+  routing verdict (chosen, ranked, or excluded).
+- `Mimir.Oracle.Placement` is renamed `Mimir.Oracle.Decision` — the rich
+  server-side decision (entry, reasons, candidate verdict table), distinct
+  from the wire-level `Mimir.Placement`.
+- `Mimir.DecisionRecord` is now a struct (`build/5` returns a
+  `%DecisionRecord{}`); `to_event/1` renders it to the binary-keyed audit map.
+  The rendered turn-event shape is unchanged.
+
+### BREAKING
+
+- `c:Mimir.RouterClient.route/2` returns `{:ok, %Mimir.RouteResponse{}}` instead
+  of `{:ok, map()}`.
+- `Mimir.DecisionRecord.build/5` returns a `%Mimir.DecisionRecord{}` instead of
+  a plain map; its `verdict` argument is now `{:decision, %Oracle.Decision{}}`
+  (was `{:placement, %Oracle.Placement{}}`).
+- `Mimir.Oracle.decide/4` returns `{:decision, %Oracle.Decision{}}` instead of
+  `{:placement, %Oracle.Placement{}}`.
+- `Mimir.Guard.for_grant/3` now takes a `%Mimir.Grant{}` instead of a plain
+  grant map. `Mimir.Sessions.opts/2` and `Mimir.Ingest.from_route/2` now take
+  a `%Mimir.RouteResponse{}` instead of a raw route response map.
+
 ## 0.2.0 (2026-07-05)
 
 Adds a governance composition layer on top of the routing oracle:

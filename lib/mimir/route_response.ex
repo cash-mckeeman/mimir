@@ -1,6 +1,6 @@
 defmodule Mimir.RouteResponse do
   @moduledoc """
-  The parsed result of a routing call (`Mimir.RouterClient.route/2`). This is
+  The parsed result of a routing call (`c:Mimir.RouterClient.route/2`). This is
   the single boundary where an atom- or string-keyed decoded JSON response is
   turned into mimir's struct vocabulary: build with `new/1`, then consume
   assertively (`resp.grant.budget_microdollars`, pattern-match on `verdict`).
