@@ -410,7 +410,9 @@ defmodule Mix.Tasks.Mimir.Smoke do
     Application.put_env(:mimir, :pricing, @rates)
 
     try do
-      guard = Mimir.Guard.for_grant(%{budget_microdollars: 18_000}, @model)
+      guard =
+        Mimir.Guard.for_grant(%Mimir.Grant{key: "vk-grant", budget_microdollars: 18_000}, @model)
+
       :cont = guard.(%{usage: %{input_tokens: 10, output_tokens: 10}, turns: 1})
 
       {:halt, {:budget_exceeded, _}} =
@@ -428,29 +430,29 @@ defmodule Mix.Tasks.Mimir.Smoke do
   end
 
   defp sessions_stage do
-    resp = %{
-      verdict: "placement",
-      placement: %{
-        lane: "anthropic",
-        model: @model,
-        runtime: "managed",
-        reasons: [],
-        candidates: []
-      },
-      grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
-      workflow_id: "wf",
-      step_id: "s1",
-      decision_id: "rd_smoke",
-      snapshot_at: "2026-07-04T00:00:00Z"
-    }
+    {:ok, resp} =
+      Mimir.RouteResponse.new(%{
+        verdict: "placement",
+        placement: %{lane: "anthropic", model: @model, runtime: "managed"},
+        grant: %{key: "vk-grant", expires_at: nil, budget_microdollars: 50_000},
+        workflow_id: "wf",
+        step_id: "s1",
+        decision_id: "rd_smoke",
+        snapshot_at: "2026-07-04T00:00:00Z"
+      })
 
     opts = Mimir.Sessions.opts(resp, base_url: "https://gw.example/v1", request_id: "req_smoke")
     true = opts[:model_config].api_key == "vk-grant"
     true = opts[:telemetry_metadata].decision_id == "rd_smoke"
     true = is_function(opts[:turn_guard], 1)
 
-    # Ingest: the recipe's correlation flows into buffered events.
-    ctx = Mimir.Ingest.from_route(resp, "req_smoke")
+    # Ingest still takes a plain map in this task; Task 7 switches this to `resp`.
+    ctx =
+      Mimir.Ingest.from_route(
+        %{decision_id: "rd_smoke", workflow_id: "wf", step_id: "s1"},
+        "req_smoke"
+      )
+
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hi"})
     [event] = Mimir.TurnEvents.take("req_smoke")
     true = event["gen_ai"]["decision_id"] == "rd_smoke"

@@ -22,14 +22,14 @@ defmodule Mimir.Guard do
   @type guard_fun :: (turn_state() -> verdict())
 
   @doc """
-  Build a guard from a route-response grant. `grant` needs only
-  `budget_microdollars` (atom or string key) — pass `resp.grant` from
-  `c:Mimir.RouterClient.route/2` directly. A nil/absent budget never halts on
-  cost. `opts` take `caps/1` options; caps are checked before the budget.
+  Build a guard from a route-response grant. Pass `resp.grant` from a
+  `%Mimir.RouteResponse{}`. A `%Grant{}` with a nil `budget_microdollars`
+  never halts on cost. `opts` take `caps/1` options; caps are checked before
+  the budget.
   """
-  @spec for_grant(map(), String.t(), keyword()) :: guard_fun()
-  def for_grant(grant, model, opts \\ []) when is_map(grant) and is_binary(model) do
-    budget = grant[:budget_microdollars] || grant["budget_microdollars"]
+  @spec for_grant(Mimir.Grant.t(), String.t(), keyword()) :: guard_fun()
+  def for_grant(%Mimir.Grant{} = grant, model, opts \\ []) when is_binary(model) do
+    budget = grant.budget_microdollars
     caps_fun = caps(opts)
 
     fn state ->
