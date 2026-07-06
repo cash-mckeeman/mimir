@@ -346,6 +346,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
             plug: fn conn -> Req.Test.json(conn, body) end
           )
 
+        true = resp.verdict == :placement
         true = resp.placement.model == @model
         true = resp.grant.key == "vk-grant"
 
@@ -356,7 +357,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
             plug: fn conn -> Plug.Conn.send_resp(conn, 409, "{}") end
           )
 
-        {:ok, "placement atomized; 409 mapped to http_error"}
+        {:ok, "placement parsed to struct; 409 mapped to http_error"}
       else
         {:skip, "compiled under MIX_ENV=test but Req.Test is not loaded at runtime"}
       end

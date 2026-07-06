@@ -8,8 +8,8 @@ defmodule Mimir.RouterClient do
   An embedder that runs in the same application as the router (e.g. an
   in-process pipeline in a gateway, no HTTP hop) may implement this behaviour
   with its own in-process client instead. Any conforming implementation
-  should return IDENTICAL atom-keyed response shapes for identical logical
-  inputs.
+  should return an identical `{:ok, %Mimir.RouteResponse{}}` shape for
+  identical logical inputs.
   """
 
   @doc """
@@ -20,7 +20,7 @@ defmodule Mimir.RouterClient do
   - `opts` — implementation-specific options, e.g. for `HTTP`:
     `:base_url` (required), `:bearer_token` (required).
 
-  Returns `{:ok, response_map}` with atom keys on success, or `{:error, term()}`.
+  Returns `{:ok, %Mimir.RouteResponse{}}` on success, or `{:error, term()}`.
   """
-  @callback route(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback route(map(), keyword()) :: {:ok, Mimir.RouteResponse.t()} | {:error, term()}
 end

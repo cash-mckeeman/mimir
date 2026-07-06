@@ -22,17 +22,17 @@ defmodule Mimir.RouterClient.HTTPTest do
   test "route/2 atomizes a placement response" do
     plug = fn conn -> Req.Test.json(conn, @placement_body) end
 
-    assert {:ok, resp} =
+    assert {:ok, %Mimir.RouteResponse{} = resp} =
              HTTP.route(%{task_class: "extraction"},
                base_url: "http://router.test",
                bearer_token: "vk-parent",
                plug: plug
              )
 
-    assert resp.verdict == "placement"
+    assert resp.verdict == :placement
     assert resp.placement.model == "anthropic:claude-sonnet-4-6"
     assert resp.grant.key == "vk-grant"
-    assert [%{id: "e1", verdict: "chosen"}] = resp.placement.candidates
+    assert resp.grant.budget_microdollars == 50_000
   end
 
   test "route/2 surfaces non-2xx as http_error" do
