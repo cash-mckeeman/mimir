@@ -14,6 +14,8 @@ defmodule Mimir.Ingest do
 
   alias Mimir.TurnEvents
 
+  require Logger
+
   @enforce_keys [:request_id]
   defstruct [:request_id, :decision_id, metadata: %{}]
 
@@ -63,13 +65,17 @@ defmodule Mimir.Ingest do
       {type, gen_ai} -> TurnEvents.append(ctx.request_id, type, correlate(gen_ai, ctx))
     end
   rescue
-    _ -> :ok
+    e ->
+      # Never raise into the session loop, but keep the failure observable — a
+      # blanket swallow would hide a genuine fault in the ingestion path.
+      Logger.warning("Mimir.Ingest dropped an event: #{Exception.message(e)}")
+      :ok
   end
 
   def handle_event(%__MODULE__{}, _event), do: :ok
 
-  defp classify(%{"type" => "rma.text_delta"} = e),
-    do: {"text_delta", %{"gen_ai.output.text.delta" => e["text"]}}
+  defp classify(%{"type" => "rma.text_delta", "text" => text}),
+    do: {"text_delta", %{"gen_ai.output.text.delta" => text}}
 
   defp classify(%{"type" => type} = e) when is_binary(type),
     do: {type, Map.delete(e, "type")}
