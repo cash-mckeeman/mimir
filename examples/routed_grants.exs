@@ -75,10 +75,11 @@ request = %{
 # ── 2. Call the router ───────────────────────────────────────────────────────
 #
 # `Mimir.RouterClient.HTTP.route/2` POSTs to `#{base_url}/v1/route` with a
-# bearer `Authorization` header and normalizes the JSON response to atom-keyed
-# maps — so this looks the same as an in-process router implementation would.
+# bearer `Authorization` header and parses the JSON response into a
+# `%Mimir.RouteResponse{}` via `Mimir.RouteResponse.new/1` — the single struct
+# boundary. Every field below is a struct field, never a raw map key.
 case Mimir.RouterClient.HTTP.route(request, base_url: router_url, bearer_token: router_key) do
-  {:ok, %{verdict: "placement"} = response} ->
+  {:ok, %Mimir.RouteResponse{verdict: :placement} = response} ->
     placement = response.placement
     grant = response.grant
 
@@ -86,7 +87,7 @@ case Mimir.RouterClient.HTTP.route(request, base_url: router_url, bearer_token: 
     # confirm you got a distinct, well-formed key without leaking it into logs
     # or terminal scrollback.
     masked_key =
-      case grant[:key] do
+      case grant.key do
         key when is_binary(key) and byte_size(key) > 8 ->
           "#{binary_part(key, 0, 8)}... (#{byte_size(key)} chars)"
 
@@ -99,10 +100,10 @@ case Mimir.RouterClient.HTTP.route(request, base_url: router_url, bearer_token: 
 
     IO.puts("""
 
-    placement:   #{placement[:id] || placement[:model]} (#{placement[:model]}, lane #{placement[:lane]})
-    decision_id: #{response[:decision_id]}
+    placement:   #{placement.model} (lane #{placement.lane}, runtime #{placement.runtime})
+    decision_id: #{response.decision_id}
     grant key:   #{masked_key}
-    expires_at:  #{grant[:expires_at]}
+    expires_at:  #{grant.expires_at}
 
     Where this attaches: the granted key + this same #{router_url} become the
     session's model config — e.g. `base_url: "#{router_url}", api_key: <the grant key>`
@@ -112,12 +113,12 @@ case Mimir.RouterClient.HTTP.route(request, base_url: router_url, bearer_token: 
     never needs to track spend itself.
     """)
 
-  {:ok, %{verdict: "no_candidate"} = response} ->
+  {:ok, %Mimir.RouteResponse{verdict: :no_candidate} = response} ->
     IO.puts("""
 
     no_candidate — the router had nothing viable for this descriptor.
-    decision_id: #{response[:decision_id]}
-    reasons:     #{inspect(response[:reasons])}
+    decision_id: #{response.decision_id}
+    reasons:     #{inspect(response.reasons)}
     """)
 
   {:error, {:http_error, status, body}} ->

@@ -72,7 +72,7 @@ defmodule Mimir.Catalog do
         ]
 
       {:error, :unknown_model} ->
-        Logger.warning("catalog entry dropped (unresolvable model): #{inspect(raw)}")
+        Logger.warning("Mimir.Catalog: entry dropped (unresolvable model): #{inspect(raw)}")
         []
     end
   end
