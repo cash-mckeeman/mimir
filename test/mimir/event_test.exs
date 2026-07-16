@@ -53,5 +53,28 @@ defmodule Mimir.EventTest do
       {:ok, ev} = Event.llm(:reasoning, seq: 0, ts: 0)
       assert {:ok, ^ev} = ev |> Event.to_wire() |> Map.put("future_field", 1) |> Event.from_wire()
     end
+
+    test "from_wire with an unrecognized domain string" do
+      assert {:error, {:bad_event, {:bad_domain, "bogus"}}} =
+               Event.from_wire(%{"domain" => "bogus", "type" => "usage", "seq" => 0, "ts" => 0})
+    end
+
+    test "from_wire tolerates non-map ids/raw, degrading to %{}" do
+      {:ok, ev} =
+        Event.from_wire(%{
+          "domain" => "llm",
+          "type" => "usage",
+          "seq" => 0,
+          "ts" => 0,
+          "ids" => "not-a-map",
+          "raw" => 123
+        })
+
+      assert ev.request_id == nil
+      assert ev.workflow_id == nil
+      assert ev.step_id == nil
+      assert ev.session_id == nil
+      assert ev.raw == %{}
+    end
   end
 end
