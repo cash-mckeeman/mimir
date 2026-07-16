@@ -55,7 +55,6 @@ defmodule Mimir.DecisionRecordTest do
       },
       health: health,
       parent_remaining: :unlimited,
-      rpm_headroom: :unlimited,
       snapshot_at: ~U[2026-07-04 00:00:00Z]
     }
   end

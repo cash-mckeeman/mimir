@@ -1,7 +1,8 @@
 defmodule Mimir.Guard do
   @moduledoc """
-  Turn-guard builders for a session loop's between-turn hook (RMA 0.5.0's
-  `turn_guard:` option). Plain data in, plain verdict out — no RMA types.
+  Turn-guard builders for a session loop's between-turn hook (RMA's
+  `turn_guard:` option; 0.5.0+, hook shape unchanged through 0.10). Plain
+  data in, plain verdict out — no RMA types.
 
   `for_grant/3` prices the session's accumulated usage with `Mimir.Pricing`
   and halts once the grant budget is spent — the control-plane soft half of

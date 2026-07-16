@@ -37,6 +37,7 @@ end
 | `Mimir.RouteLog` | Typed route outcome plus a request-log meta builder. |
 | `Mimir.Pricing` | Token usage to integer microdollar cost, config-first over a vendored LiteLLM pricing DB. |
 | `Mimir.TurnEvents` | Per-request ordered `gen_ai.*` event buffer. |
+| `Mimir.TurnEvents.GenAI` | Dependency-free builders for binary-keyed `gen_ai.*` attribute maps (OpenTelemetry GenAI semantic conventions). |
 | `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. Returns a parsed `%Mimir.RouteResponse{}`. |
 | `Mimir.RouteResponse` | Parsed routing-call result; `new/1` is the single boundary from wire map to struct. |
 | `Mimir.Grant` | Minted routing grant: key, budget, expiry. |
