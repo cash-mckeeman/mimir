@@ -60,7 +60,7 @@ defmodule Mimir.CatalogTest do
     ]
 
     log = capture_log(fn -> assert Catalog.entries(bad, resolve: &resolve/1) == [] end)
-    assert log =~ "catalog entry dropped"
+    assert log =~ "Mimir.Catalog: entry dropped"
   end
 
   test "entries/0 reads app config" do

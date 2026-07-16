@@ -40,12 +40,13 @@ defmodule Mimir.Descriptor do
           name: String.t() | nil,
           version: String.t() | nil
         }
+  @type expected_tokens :: %{in: non_neg_integer(), out: non_neg_integer()}
 
   @type t :: %__MODULE__{
           task_class: String.t(),
           budget_ceiling_microdollars: pos_integer(),
           latency_tolerance_ms: pos_integer(),
-          expected_tokens: %{in: non_neg_integer(), out: non_neg_integer()} | nil,
+          expected_tokens: expected_tokens() | nil,
           quality_bar: nil,
           agent: agent_identity() | nil,
           max_outcome_iterations: pos_integer() | nil,

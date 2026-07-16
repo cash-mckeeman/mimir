@@ -173,11 +173,11 @@ case Mimir.Oracle.decide(
     IO.puts("\nno_candidate (tight budget + missing capabilities): #{inspect(reasons)}")
 end
 
-# ── What's not here yet ──────────────────────────────────────────────────────
+# ── What's not here ──────────────────────────────────────────────────────────
 #
 # This example never enforces a budget — it only ever *decides*, then trusts
 # the caller to honor the decision. Budget guards that work without a fleet
-# behind them (no minted keys, no router service) arrive with `Mimir.Guard` in
-# 0.2.0. Until then, gateway-less mode is decision-only: pair it with your own
-# accounting if you need hard spend limits.
+# behind them (no minted keys, no router service) are `Mimir.Guard.caps/1` —
+# see the README's "Gateway-less mode" section for the one-liner. This script
+# stops at the decision to keep the oracle call itself the sole focus.
 IO.puts("\ndone — gateway-less mode: no service, no minted key, just the oracle.")
