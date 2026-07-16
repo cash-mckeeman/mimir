@@ -82,6 +82,7 @@ All configuration lives under the `:mimir` application:
 | `:health_threshold` | `Mimir.Health` | Failure-streak count at which a lane is reported `:degraded`. Default `3`. |
 | `:completion_event` | `Mimir.Health` | Telemetry event `Health.attach/0` listens on. Default `[:mimir, :completion]`. |
 | `:turn_events_tables` | `Mimir.TurnEvents` | `{seq_table, buf_table}` ETS table names, for running more than one buffer instance. |
+| `:gateway_base_url` | `Mimir.Sessions` | Default `:base_url` for `opts/2`'s `model_config`, when not passed explicitly. |
 
 ## Examples
 

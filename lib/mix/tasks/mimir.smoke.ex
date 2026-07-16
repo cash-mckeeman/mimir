@@ -97,7 +97,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
       {:error, results} ->
         print_results(results)
         fails = Enum.count(results, fn {_, s, _} -> s == :fail end)
-        Mix.raise("#{fails} smoke stage(s) failed.")
+        Mix.raise("#{fails} smoke stage(s) failed")
     end
   end
 

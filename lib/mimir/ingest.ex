@@ -65,7 +65,7 @@ defmodule Mimir.Ingest do
     e ->
       # Never raise into the session loop, but keep the failure observable — a
       # blanket swallow would hide a genuine fault in the ingestion path.
-      Logger.warning("Mimir.Ingest dropped an event: #{Exception.message(e)}")
+      Logger.warning("Mimir.Ingest: dropped an event: #{Exception.message(e)}")
       :ok
   end
 
