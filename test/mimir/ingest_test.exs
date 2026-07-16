@@ -1,6 +1,8 @@
 defmodule Mimir.IngestTest do
   use ExUnit.Case, async: false
 
+  alias Mimir.Event
+
   setup do
     start_supervised!(Mimir.TurnEvents)
     :ok
@@ -23,22 +25,26 @@ defmodule Mimir.IngestTest do
     assert ctx.metadata == %{"workflow_id" => "wf", "step_id" => "s1"}
   end
 
-  test "text deltas land decision-correlated in the buffer" do
+  test "text deltas land decision-correlated, promoted into the typed event" do
     ctx =
       Mimir.Ingest.new(request_id: "req_2", decision_id: "rd_2", metadata: %{"step_id" => "s"})
 
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hel"})
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "lo"})
 
-    assert [e1, e2] = Mimir.TurnEvents.take("req_2")
-    assert e1["type"] == "text_delta"
-    assert e1["gen_ai"]["gen_ai.output.text.delta"] == "hel"
-    assert e1["gen_ai"]["decision_id"] == "rd_2"
-    assert e1["gen_ai"]["step_id"] == "s"
-    assert e2["gen_ai"]["gen_ai.output.text.delta"] == "lo"
+    assert [%Event{} = e1, %Event{} = e2] = Mimir.TurnEvents.take("req_2")
+
+    assert e1.domain == :llm
+    assert e1.type == :turn_complete
+    assert e1.request_id == "req_2"
+    assert e1.step_id == "s"
+    assert e1.raw["output_text_delta"] == "hel"
+    assert e1.raw["raw_type"] == "text_delta"
+    assert e1.raw["decision_id"] == "rd_2"
+    assert e2.raw["output_text_delta"] == "lo"
   end
 
-  test "typed raw events pass through under their own type" do
+  test "typed raw events pass through under raw_type, decision-correlated" do
     ctx = Mimir.Ingest.new(request_id: "req_3")
 
     :ok =
@@ -48,10 +54,24 @@ defmodule Mimir.IngestTest do
         "input" => %{"q" => "x"}
       })
 
-    assert [e] = Mimir.TurnEvents.take("req_3")
-    assert e["type"] == "custom_tool_use"
-    assert e["gen_ai"]["name"] == "search"
-    refute Map.has_key?(e["gen_ai"], "type")
+    assert [%Event{} = e] = Mimir.TurnEvents.take("req_3")
+    assert e.type == :turn_complete
+    assert e.raw["raw_type"] == "custom_tool_use"
+    assert e.raw["name"] == "search"
+    assert e.raw["input"] == %{"q" => "x"}
+    refute Map.has_key?(e.raw, "type")
+  end
+
+  test "workflow_id/step_id metadata promotes into the event's typed ids" do
+    ctx =
+      Mimir.Ingest.new(
+        request_id: "req_5",
+        metadata: %{"workflow_id" => "wf_5", "step_id" => "s5"}
+      )
+
+    :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "x"})
+
+    assert [%Event{workflow_id: "wf_5", step_id: "s5"}] = Mimir.TurnEvents.take("req_5")
   end
 
   test "untyped maps are skipped; garbage never raises" do

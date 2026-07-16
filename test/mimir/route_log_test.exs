@@ -81,7 +81,7 @@ defmodule Mimir.RouteLogTest do
       assert meta.parent_step_id == "step_0"
     end
 
-    test "wraps the decision record's rendered event in the TurnEvents envelope" do
+    test "wraps the decision record's rendered event in the turn_events meta entry" do
       log = route_log(:placed)
       meta = RouteLog.to_meta(log, 42)
       expected_event = DecisionRecord.to_event(log.decision_record)
@@ -91,10 +91,10 @@ defmodule Mimir.RouteLogTest do
                  "seq" => 1,
                  "ts" => 42,
                  "type" => "routing_decision",
-                 "gen_ai" => ^expected_event
+                 "decision" => ^expected_event
                }
              ] =
-               meta.gen_ai_events
+               meta.turn_events
     end
   end
 

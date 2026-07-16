@@ -1,12 +1,13 @@
 defmodule Mimir.TurnEvents.RoundTripTest do
   @moduledoc """
   Exercises the buffer end to end: multiple request ids in flight at once,
-  each round-tripping independently through append/take, and the persisted
-  envelope shape matching what `envelope/4` builds from the same fields.
+  each round-tripping independently through append/take, and the taken
+  event's wire form round-tripping through `Mimir.Event.to_wire/1`/
+  `from_wire/1`.
   """
   use ExUnit.Case, async: false
 
-  alias Mimir.TurnEvents
+  alias Mimir.{Event, TurnEvents}
 
   setup do
     case start_supervised(TurnEvents) do
@@ -21,30 +22,32 @@ defmodule Mimir.TurnEvents.RoundTripTest do
     rid_a = "rid_a_#{System.unique_integer([:positive])}"
     rid_b = "rid_b_#{System.unique_integer([:positive])}"
 
-    :ok = TurnEvents.append(rid_a, "request_start", %{"a" => 1})
-    :ok = TurnEvents.append(rid_b, "tool_use", %{"gen_ai.tool.name" => "run_sql"})
-    :ok = TurnEvents.append(rid_a, "turn_complete", %{"a" => 2})
+    {:ok, a1} = Event.llm(:request_start, request_id: rid_a, raw: %{"a" => 1})
+    {:ok, b1} = Event.llm(:tool_call, request_id: rid_b, tool: %{id: "t1", name: "run_sql"})
+    {:ok, a2} = Event.llm(:turn_complete, request_id: rid_a, raw: %{"a" => 2})
+
+    :ok = TurnEvents.append(rid_a, a1)
+    :ok = TurnEvents.append(rid_b, b1)
+    :ok = TurnEvents.append(rid_a, a2)
 
     assert [
-             %{"seq" => 1, "type" => "request_start", "gen_ai" => %{"a" => 1}},
-             %{"seq" => 2, "type" => "turn_complete", "gen_ai" => %{"a" => 2}}
+             %Event{seq: 1, type: :request_start, raw: %{"a" => 1}},
+             %Event{seq: 2, type: :turn_complete, raw: %{"a" => 2}}
            ] = TurnEvents.take(rid_a)
 
-    assert [%{"seq" => 1, "type" => "tool_use", "gen_ai" => %{"gen_ai.tool.name" => "run_sql"}}] =
-             TurnEvents.take(rid_b)
+    assert [%Event{seq: 1, type: :tool_call, tool: %{name: "run_sql"}}] = TurnEvents.take(rid_b)
 
     # Taking clears both — a second take for either id returns empty.
     assert TurnEvents.take(rid_a) == []
     assert TurnEvents.take(rid_b) == []
   end
 
-  test "the persisted envelope from take/1 matches envelope/4 built from the same fields" do
+  test "the taken event's wire form round-trips through to_wire/from_wire" do
     rid = "rid_#{System.unique_integer([:positive])}"
-    :ok = TurnEvents.append(rid, "tool_use", %{"gen_ai.tool.name" => "run_sql"})
+    {:ok, ev} = Event.llm(:tool_call, request_id: rid, tool: %{id: "t1", name: "run_sql"})
+    :ok = TurnEvents.append(rid, ev)
 
-    assert [%{"seq" => seq, "ts" => ts, "type" => type, "gen_ai" => gen_ai} = event] =
-             TurnEvents.take(rid)
-
-    assert TurnEvents.envelope(seq, ts, type, gen_ai) == event
+    assert [taken] = TurnEvents.take(rid)
+    assert {:ok, ^taken} = taken |> Event.to_wire() |> Event.from_wire()
   end
 end

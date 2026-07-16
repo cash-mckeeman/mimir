@@ -6,13 +6,27 @@ defmodule Mimir.Ingest do
   binary-keyed `%{"type" => ...}` map. No RMA types.
 
   Build a context with `new/1` or `from_route/2`, then call `handle_event/2`
-  from your session handler's event hook. Each ingested event lands in the
-  TurnEvents buffer keyed by `request_id`, with the decision correlation
-  merged into its gen_ai map — the same buffer the embedder drains
+  from your session handler's event hook. Each ingested map is promoted to a
+  `Mimir.Event` (domain `:llm` — RMA telemetry ingested through this path is
+  model-turn-shaped; agent-session-lifecycle framing belongs to the gateway
+  Collector's `agent.*` path, not this one) and appended to the buffer keyed
+  by `request_id` — the same buffer the embedder drains
   (`Mimir.TurnEvents.take/1`) when it meters the run.
+
+  `metadata`'s `"workflow_id"`/`"step_id"` keys are unchanged from before —
+  they now thread straight into the ingested event's typed `workflow_id`/
+  `step_id` fields (same names, promoted to `Mimir.Event`'s correlation
+  spine) instead of being merged into a loose payload map. `decision_id` has
+  no dedicated `Mimir.Event` field, so it rides in the event's `raw`
+  carve-out, alongside the original provider-native payload. The ingested
+  event's `type` is always `:turn_complete` — the closed `llm` vocabulary has
+  no dedicated shape for arbitrary provider-native passthrough, the same
+  posture `Mimir.Event.OTel` documents for `request_start`/`request_stop`/
+  `turn_complete`/`exception`: no fixed attribute shape, `raw` rendered
+  verbatim at the export edge.
   """
 
-  alias Mimir.TurnEvents
+  alias Mimir.{Event, TurnEvents}
 
   require Logger
 
@@ -27,7 +41,8 @@ defmodule Mimir.Ingest do
 
   @doc """
   Options: `:request_id` (required), `:decision_id`, `:metadata` — a
-  binary-keyed map merged into every ingested event's gen_ai payload.
+  binary-keyed map. `"workflow_id"`/`"step_id"` correlate into the ingested
+  event's typed ids; any other key rides in `raw`.
   """
   @spec new(keyword()) :: t()
   def new(opts) do
@@ -52,14 +67,26 @@ defmodule Mimir.Ingest do
   end
 
   @doc """
-  Ingest one raw event map. Always returns `:ok`; never raises into the
-  session loop.
+  Ingest one raw event map, promoting it to a `Mimir.Event` and appending it
+  to the buffer under `ctx.request_id`. Always returns `:ok`; never raises
+  into the session loop.
   """
   @spec handle_event(t(), map()) :: :ok
   def handle_event(%__MODULE__{} = ctx, event) when is_map(event) do
     case classify(event) do
-      :skip -> :ok
-      {type, gen_ai} -> TurnEvents.append(ctx.request_id, type, correlate(gen_ai, ctx))
+      :skip ->
+        :ok
+
+      {raw_type, attrs} ->
+        {:ok, ev} =
+          Event.llm(:turn_complete,
+            request_id: ctx.request_id,
+            workflow_id: ctx.metadata["workflow_id"],
+            step_id: ctx.metadata["step_id"],
+            raw: correlate(raw_type, attrs, ctx)
+          )
+
+        TurnEvents.append(ctx.request_id, ev)
     end
   rescue
     e ->
@@ -72,16 +99,17 @@ defmodule Mimir.Ingest do
   def handle_event(%__MODULE__{}, _event), do: :ok
 
   defp classify(%{"type" => "rma.text_delta", "text" => text}),
-    do: {"text_delta", %{"gen_ai.output.text.delta" => text}}
+    do: {"text_delta", %{"output_text_delta" => text}}
 
   defp classify(%{"type" => type} = e) when is_binary(type),
     do: {type, Map.delete(e, "type")}
 
   defp classify(_), do: :skip
 
-  defp correlate(gen_ai, ctx) do
-    gen_ai
-    |> Map.merge(ctx.metadata)
+  defp correlate(raw_type, attrs, ctx) do
+    attrs
+    |> Map.put("raw_type", raw_type)
+    |> Map.merge(Map.drop(ctx.metadata, ["workflow_id", "step_id"]))
     |> maybe_put("decision_id", ctx.decision_id)
   end
 

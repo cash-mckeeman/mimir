@@ -25,11 +25,12 @@ defmodule Mimir.Event.OTel do
 
   `llm` types with no dedicated historical builder (`request_start`,
   `request_stop`, `turn_complete`, `exception`) had no fixed attribute shape
-  before this vocabulary existed — the old `Mimir.Ingest.classify/1` forwarded
-  whatever provider-shaped map arrived verbatim as the event's `gen_ai`
-  payload. This mapper preserves that posture: it renders the event's `raw`
-  map (string-keying any atom keys), so a collector that stashes
-  provider-native `gen_ai.*` attributes in `raw` gets them exported unchanged.
+  before this vocabulary existed — the old `Mimir.Ingest` module's private
+  `classify` step forwarded whatever provider-shaped map arrived verbatim as
+  the event's `gen_ai` payload. This mapper preserves that posture: it
+  renders the event's `raw` map (string-keying any atom keys), so a
+  collector that stashes provider-native `gen_ai.*` attributes in `raw` gets
+  them exported unchanged.
 
   ## `agent` domain — OTel GenAI *agent* conventions
 
