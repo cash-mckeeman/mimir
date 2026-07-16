@@ -28,7 +28,6 @@ defmodule Mimir.RouteLogTest do
       pricing: %{"anthropic:claude-haiku-4-5" => %{input: 250_000, output: 1_250_000}},
       health: %{},
       parent_remaining: :unlimited,
-      rpm_headroom: :unlimited,
       snapshot_at: ~U[2026-07-04 00:00:00Z]
     }
 

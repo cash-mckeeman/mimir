@@ -28,7 +28,6 @@ defmodule Mimir.SnapshotTest do
     snap = %Snapshot{pricing: %{}, snapshot_at: ~U[2026-07-04 00:00:00Z]}
     assert snap.health == %{}
     assert snap.parent_remaining == :unlimited
-    assert snap.rpm_headroom == :unlimited
   end
 
   # ── assemble/1 ────────────────────────────────────────────────────────────
@@ -40,7 +39,6 @@ defmodule Mimir.SnapshotTest do
       assert %Snapshot{} = snap
       assert snap.pricing == @pricing
       assert snap.parent_remaining == :unlimited
-      assert snap.rpm_headroom == :unlimited
       assert %DateTime{} = snap.snapshot_at
     end
 
@@ -61,11 +59,6 @@ defmodule Mimir.SnapshotTest do
 
       assert DateTime.compare(snap.snapshot_at, before) in [:gt, :eq]
       assert DateTime.compare(snap.snapshot_at, after_now) in [:lt, :eq]
-    end
-
-    test "rpm_headroom is :unlimited by default" do
-      snap = Snapshot.assemble([])
-      assert snap.rpm_headroom == :unlimited
     end
 
     test "pricing comes from app config" do

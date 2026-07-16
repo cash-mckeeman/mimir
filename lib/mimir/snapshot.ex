@@ -15,8 +15,7 @@ defmodule Mimir.Snapshot do
     :pricing,
     :snapshot_at,
     health: %{},
-    parent_remaining: :unlimited,
-    rpm_headroom: :unlimited
+    parent_remaining: :unlimited
   ]
 
   @type rates :: %{input: non_neg_integer(), output: non_neg_integer()}
@@ -24,8 +23,7 @@ defmodule Mimir.Snapshot do
           pricing: %{optional(String.t()) => rates()},
           snapshot_at: DateTime.t(),
           health: %{optional(String.t()) => :ok | :degraded},
-          parent_remaining: :unlimited | integer(),
-          rpm_headroom: :unlimited | integer()
+          parent_remaining: :unlimited | integer()
         }
 
   @doc """
@@ -35,7 +33,6 @@ defmodule Mimir.Snapshot do
     `Application.get_env(:mimir, :pricing, %{})`.
   - `:health` — lane → `:ok | :degraded` (e.g. `Mimir.Health.all/0`); default `%{}`.
   - `:parent_remaining` — remaining caller budget in microdollars, or `:unlimited`.
-  - `:rpm_headroom` — `:unlimited` or integer headroom.
   - `:snapshot_at` — defaults to `DateTime.utc_now()`.
   """
   @spec assemble(keyword()) :: t()
@@ -44,7 +41,6 @@ defmodule Mimir.Snapshot do
       pricing: Keyword.get(opts, :pricing, Application.get_env(:mimir, :pricing, %{})),
       health: Keyword.get(opts, :health, %{}),
       parent_remaining: Keyword.get(opts, :parent_remaining, :unlimited),
-      rpm_headroom: Keyword.get(opts, :rpm_headroom, :unlimited),
       snapshot_at: Keyword.get(opts, :snapshot_at, DateTime.utc_now())
     }
   end
