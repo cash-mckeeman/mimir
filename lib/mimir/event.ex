@@ -27,12 +27,21 @@ defmodule Mimir.Event do
 
   ## `path` — materialized call-path provenance
 
-  `path` is an ordered list of typed frames, **outermost → innermost
-  spawner**: `["workflow:wf_123", "workflow_step:step_5", "agent:sess_9"]`
-  reads as "a workflow spawned a step which spawned an agent session." One
-  event, in isolation, recreates its full spawn lineage and depth. An
-  event's immediate spawner is `List.last(path)`; the empty list (the
-  default) means "no recorded spawner" (a top-level event).
+  `path` is an ordered list of typed frames naming the chain of scopes that
+  **contain** this event, outermost first, innermost last:
+  `["workflow:wf_123", "workflow_step:step_5", "agent:sess_9"]` reads as "an
+  agent session, inside step_5, inside workflow wf_123." One event, in
+  isolation, recreates its full containment lineage and depth; the empty list
+  (the default) means "no recorded scope" (a top-level event).
+
+  `List.last(path)` is the **innermost scope the event belongs to**. For a
+  leaf event — an LLM call or usage record, not itself a scope — that frame is
+  also its immediate container (the step or session that made the call). For a
+  scope-*lifecycle* event — the start/stop/terminal of a scope — the innermost
+  frame IS that scope itself (a `workflow.step_start` ends in its own
+  `workflow_step:` frame; an `agent.terminal` ends in its own `agent:` frame),
+  so the scope's spawner is the *previous* frame. Read the chain, not a fixed
+  offset from the end.
 
   Each frame is `"<kind>:<id>"` where `kind` is one of a **closed union per
   release** (`workflow | workflow_step | agent | conversation`) and `id` is
@@ -41,23 +50,29 @@ defmodule Mimir.Event do
   release. Requests are leaf events, not scopes — there is no `req:` frame;
   `request_id` stays a promoted id field on the event itself.
 
-  `path` is the **spawn axis**: "who created me." It is deliberately
-  distinct from a data-dependency axis some callers track separately
-  ("whose output did I consume", e.g. a step's first upstream dependency) —
-  a step can depend on another step's output without either having spawned
-  the other. Do not conflate the two; this module only carries the spawn
-  axis.
+  `path` is the **containment/spawn axis**: "what scopes am I inside." It is
+  deliberately distinct from a data-dependency axis some callers track
+  separately ("whose output did I consume", e.g. a step's first upstream
+  dependency) — a step can depend on another step's output without either
+  containing the other. Do not conflate the two; this module only carries the
+  containment axis.
 
   Constructors validate every frame against the closed kind set and the
   non-empty-id rule, returning `{:error, {:bad_frame, frame}}` for the
   first offender (compile-time fixed kind list — never `String.to_atom/1`
-  on caller-supplied data). `to_wire/1` includes the `"path"` key only when
-  the list is non-empty (same omit-when-absent idiom as the id fields).
-  `from_wire/1` treats `path` as malformed-optional data, the house
-  `RouteResponse`-style posture for tolerant boundary parsing: a missing
-  key is `[]`, and a non-list or any frame failing validation degrades the
-  *whole* path to `[]` rather than erroring — old persisted rows and
-  forward/backward version skew both read cleanly.
+  on caller-supplied data): we only ever *write* frames whose kind this
+  release knows. `to_wire/1` includes the `"path"` key only when the list is
+  non-empty (same omit-when-absent idiom as the id fields). `from_wire/1`
+  treats `path` as malformed-optional data, the house `RouteResponse`-style
+  posture for tolerant boundary parsing, and validates **shape only** — a
+  frame is a well-formed `"<kind>:<id>"` pair with both parts non-empty, but
+  the kind is *not* checked against the closed union. A future release may add
+  a kind this version does not know; erasing a whole path because one frame
+  names an unrecognized-but-well-formed scope would turn an additive change
+  into a reader-breaking one, so unknown-kind frames pass through intact. A
+  missing key is `[]`; a non-list, or any frame that is not a well-formed pair,
+  degrades the *whole* path to `[]` rather than erroring — old persisted rows
+  and forward/backward version skew both read cleanly.
   """
 
   @enforce_keys [:domain, :type, :seq, :ts]
@@ -245,9 +260,10 @@ defmodule Mimir.Event do
   domain, term()}}}`. Never raises; never calls `String.to_atom/1`.
 
   `"path"` is malformed-optional data: a missing key parses to `[]`, and a
-  non-list or any element failing frame validation degrades the whole path
-  to `[]` rather than failing the parse (a topology hint is never worth
-  rejecting an otherwise-valid event over).
+  non-list or any element that is not a well-formed `"kind:id"` pair degrades
+  the whole path to `[]` rather than failing the parse (a topology hint is
+  never worth rejecting an otherwise-valid event over). Shape is checked, not
+  the kind — unknown-but-well-formed kinds from a newer producer pass through.
   """
   @spec from_wire(map()) :: {:ok, t()} | {:error, {:bad_event, term()}}
   def from_wire(%{"domain" => domain_str, "type" => type_str} = wire)
@@ -302,8 +318,23 @@ defmodule Mimir.Event do
   defp parse_tool(_), do: nil
 
   defp parse_path(path) when is_list(path) do
-    if Enum.all?(path, &valid_frame?/1), do: path, else: []
+    if Enum.all?(path, &shape_valid_frame?/1), do: path, else: []
   end
 
   defp parse_path(_), do: []
+
+  # Shape-only frame check for the tolerant wire boundary: `"<kind>:<id>"` with
+  # both parts non-empty. Unlike `valid_frame?/1` (used on construction) it does
+  # NOT check the kind against the closed union — a newer producer may name a
+  # kind this release does not know, and dropping a whole path over one such
+  # frame would make an additive change reader-breaking. We only ever *write*
+  # closed-union kinds; we *read* any well-formed frame.
+  defp shape_valid_frame?(frame) when is_binary(frame) do
+    case String.split(frame, ":", parts: 2) do
+      [kind, id] -> kind != "" and id != ""
+      _ -> false
+    end
+  end
+
+  defp shape_valid_frame?(_), do: false
 end

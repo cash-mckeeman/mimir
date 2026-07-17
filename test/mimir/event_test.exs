@@ -175,17 +175,56 @@ defmodule Mimir.EventTest do
       assert ev.path == []
     end
 
-    test "from_wire: a path containing one malformed frame degrades the whole path to []" do
+    test "from_wire: a path containing one shape-invalid frame degrades the whole path to []" do
+      # "no-colon-here" has no "kind:id" shape at all — genuinely malformed,
+      # not merely an unrecognized kind.
       {:ok, ev} =
         Event.from_wire(%{
           "domain" => "llm",
           "type" => "usage",
           "seq" => 0,
           "ts" => 0,
-          "path" => ["workflow:wf_1", "bogus:x"]
+          "path" => ["workflow:wf_1", "no-colon-here"]
         })
 
       assert ev.path == []
+    end
+
+    test "from_wire: a frame with an empty kind or id degrades the whole path to []" do
+      for bad <- [":id_only", "kind_only:", :not_a_string] do
+        {:ok, ev} =
+          Event.from_wire(%{
+            "domain" => "llm",
+            "type" => "usage",
+            "seq" => 0,
+            "ts" => 0,
+            "path" => ["workflow:wf_1", bad]
+          })
+
+        assert ev.path == [], "expected #{inspect(bad)} to degrade the path"
+      end
+    end
+
+    test "from_wire: an unrecognized-but-well-formed kind passes through intact" do
+      # F1 forward-compat: a newer producer may emit a frame kind this release
+      # does not know. from_wire validates SHAPE only, so the whole path (and
+      # the unknown frame) survives — an additive kind must not become a
+      # reader-breaking change. Construction still rejects unknown kinds.
+      path = ["workflow:wf_1", "tool:t_9", "agent:sess_2"]
+
+      {:ok, ev} =
+        Event.from_wire(%{
+          "domain" => "llm",
+          "type" => "usage",
+          "seq" => 0,
+          "ts" => 0,
+          "path" => path
+        })
+
+      assert ev.path == path
+      # the same unknown-kind frame is rejected on construction (closed union)
+      assert {:error, {:bad_frame, "tool:t_9"}} =
+               Event.llm(:usage, seq: 0, ts: 0, path: ["tool:t_9"])
     end
 
     test "from_wire: a well-formed path round-trips through" do
