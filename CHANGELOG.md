@@ -4,20 +4,26 @@
 
 Additive provenance field: `Mimir.Event` gains `path`, a materialized call
 path — an ordered list of `"<kind>:<id>"` frames (closed kind union
-`workflow | workflow_step | agent | conversation`), outermost → innermost
-spawner, defaulting to `[]`. One event, in isolation, recreates its full
-spawn lineage; an event's
-immediate spawner is `List.last(path)`. This is deliberately the **spawn
-axis** ("who created me"), distinct from any data-dependency axis a caller
-tracks separately ("whose output did I consume") — the two can diverge and
-this field only carries the former. `llm/2`/`agent/2`/`workflow/2` validate
-every frame (bad kind or empty id → `{:error, {:bad_frame, frame}}`);
-`to_wire/1` includes `"path"` only when non-empty; `from_wire/1` treats it
-as malformed-optional data, degrading a missing key or any invalid frame to
-`[]` rather than failing the parse. `Mimir.Event.OTel.render/1` adds a
-`"mimir.path"` attribute (frames joined with `/`) when `path != []`; the
-frozen `gen_ai.*` byte-compat goldens are unaffected since none of those
-fixtures carry a path.
+`workflow | workflow_step | agent | conversation`) naming the chain of scopes
+that **contain** the event, outermost first, innermost last, defaulting to
+`[]`. One event, in isolation, recreates its full containment lineage;
+`List.last(path)` is the innermost scope the event belongs to (for a leaf
+event, its immediate container; for a scope-lifecycle event, the scope
+itself). This is deliberately the **containment/spawn axis** ("what scopes am
+I inside"), distinct from any data-dependency axis a caller tracks separately
+("whose output did I consume") — the two can diverge and this field only
+carries the former. `llm/2`/`agent/2`/`workflow/2` validate every frame
+against the closed kind set (bad kind or empty id → `{:error, {:bad_frame,
+frame}}`) — construction only ever writes known kinds. `to_wire/1` includes
+`"path"` only when non-empty. `from_wire/1` treats `path` as
+malformed-optional data and validates **shape only** — a well-formed
+`"kind:id"` pair, the kind NOT checked against the closed union — so an
+unknown-but-well-formed kind from a newer producer passes through intact
+(an additive kind is not a reader-breaking change); a missing key, a non-list,
+or a genuinely malformed frame degrades the whole path to `[]` rather than
+failing the parse. `Mimir.Event.OTel.render/1` adds a `"mimir.path"` attribute
+(frames joined with `/`) when `path != []`; the frozen `gen_ai.*` byte-compat
+goldens are unaffected since none of those fixtures carry a path.
 
 ## 0.4.0 (2026-07-16)
 
