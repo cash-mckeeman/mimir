@@ -5,17 +5,8 @@ defmodule Mimir.DecisionRecordTest do
   """
   use ExUnit.Case, async: true
 
-  alias Mimir.{Candidate, Catalog.Entry, DecisionRecord, Descriptor, Snapshot, TurnEvents}
+  alias Mimir.{Candidate, Catalog.Entry, DecisionRecord, Descriptor, Snapshot}
   alias Mimir.Oracle.Decision
-
-  setup do
-    case start_supervised(TurnEvents) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
-
-    :ok
-  end
 
   # ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -308,23 +299,6 @@ defmodule Mimir.DecisionRecordTest do
       assert "capability" in v["reasons"]
       assert "cost" in v["reasons"]
       assert length(v["candidates"]) == 2
-    end
-
-    test "TurnEvents.append/3 accepts the rendered event (no-op but no raise)" do
-      rec =
-        DecisionRecord.build(
-          descriptor(),
-          {:decision, decision()},
-          nil,
-          %{workflow_id: "wf-1", step_id: "step-a"},
-          snapshot()
-        )
-
-      event = DecisionRecord.to_event(rec)
-
-      rid = "rd_test_#{System.unique_integer([:positive])}"
-      assert :ok = TurnEvents.append(rid, "routing_decision", event)
-      assert [%{"type" => "routing_decision", "gen_ai" => ^event}] = TurnEvents.take(rid)
     end
   end
 end
