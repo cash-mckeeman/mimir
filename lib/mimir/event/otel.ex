@@ -63,6 +63,16 @@ defmodule Mimir.Event.OTel do
   `mimir.workflow.id`, `mimir.workflow.step_id` (both omitted when `nil`, same
   idiom as `Event.to_wire/1`'s `put_present`), and `mimir.workflow.event`
   (the Mimir type string, always present).
+
+  ## `path` — `mimir.path`, every domain
+
+  When `event.path != []`, `render/1` adds a `"mimir.path"` attribute —
+  the frames joined with `/` (e.g. `"wf:wf_123/step:step_5/agent:sess_9"`) —
+  on top of whichever domain-specific attributes above. This is purely
+  additive: an event with no `path` (the default, and every event recorded
+  before this field existed) renders identically to before this field was
+  added, which is what keeps the frozen `gen_ai.*` byte-compat goldens
+  passing unchanged.
   """
 
   alias Mimir.Event
@@ -70,13 +80,14 @@ defmodule Mimir.Event.OTel do
   @agent_subtype_types [:turn_start, :turn_end, :terminal, :error]
 
   @spec render(Event.t()) :: %{type: String.t(), attributes: %{optional(String.t()) => term()}}
-  def render(%Event{domain: :llm} = ev), do: %{type: "llm", attributes: llm_attributes(ev)}
+  def render(%Event{domain: :llm} = ev),
+    do: %{type: "llm", attributes: llm_attributes(ev) |> put_path(ev.path)}
 
   def render(%Event{domain: :agent} = ev),
-    do: %{type: "agent", attributes: agent_attributes(ev)}
+    do: %{type: "agent", attributes: agent_attributes(ev) |> put_path(ev.path)}
 
   def render(%Event{domain: :workflow} = ev),
-    do: %{type: "workflow", attributes: workflow_attributes(ev)}
+    do: %{type: "workflow", attributes: workflow_attributes(ev) |> put_path(ev.path)}
 
   # -- llm -------------------------------------------------------------
 
@@ -130,6 +141,9 @@ defmodule Mimir.Event.OTel do
 
   defp put_present(map, _key, nil), do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp put_path(attrs, []), do: attrs
+  defp put_path(attrs, path), do: Map.put(attrs, "mimir.path", Enum.join(path, "/"))
 
   defp stringify_keys(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
 end
