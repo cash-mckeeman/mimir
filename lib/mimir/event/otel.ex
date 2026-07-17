@@ -66,9 +66,10 @@ defmodule Mimir.Event.OTel do
 
   ## `path` — `mimir.path`, every domain
 
-  When `event.path != []`, `render/1` adds a `"mimir.path"` attribute —
-  the frames joined with `/` (e.g. `"wf:wf_123/step:step_5/agent:sess_9"`) —
-  on top of whichever domain-specific attributes above. This is purely
+  When `event.path != []`, `render/1` adds a `"mimir.path"` attribute — the
+  frames joined with `/` (e.g.
+  `"workflow:wf_123/workflow_step:step_5/agent:sess_9"`) — on top of
+  whichever domain-specific attributes above. This is purely
   additive: an event with no `path` (the default, and every event recorded
   before this field existed) renders identically to before this field was
   added, which is what keeps the frozen `gen_ai.*` byte-compat goldens

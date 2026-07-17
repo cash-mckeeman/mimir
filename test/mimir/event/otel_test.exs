@@ -149,20 +149,25 @@ defmodule Mimir.Event.OTelTest do
           seq: 1,
           ts: 2,
           usage: %{input_tokens: 10, output_tokens: 2},
-          path: ["wf:wf_123", "step:step_5", "agent:sess_9"]
+          path: ["workflow:wf_123", "workflow_step:step_5", "agent:sess_9"]
         )
 
       attrs = OTel.render(ev).attributes
-      assert attrs["mimir.path"] == "wf:wf_123/step:step_5/agent:sess_9"
+      assert attrs["mimir.path"] == "workflow:wf_123/workflow_step:step_5/agent:sess_9"
       assert attrs["gen_ai.usage.input_tokens"] == 10
     end
 
     test "agent event with a path adds mimir.path alongside the agent attributes" do
       {:ok, ev} =
-        Event.agent(:session_open, seq: 0, ts: 0, session_id: "s1", path: ["wf:wf_1", "agent:s1"])
+        Event.agent(:session_open,
+          seq: 0,
+          ts: 0,
+          session_id: "s1",
+          path: ["workflow:wf_1", "agent:s1"]
+        )
 
       attrs = OTel.render(ev).attributes
-      assert attrs["mimir.path"] == "wf:wf_1/agent:s1"
+      assert attrs["mimir.path"] == "workflow:wf_1/agent:s1"
       assert attrs["gen_ai.operation.name"] == "invoke_agent"
     end
 
@@ -173,11 +178,11 @@ defmodule Mimir.Event.OTelTest do
           ts: 0,
           workflow_id: "w1",
           step_id: "st1",
-          path: ["wf:w1"]
+          path: ["workflow:w1"]
         )
 
       attrs = OTel.render(ev).attributes
-      assert attrs["mimir.path"] == "wf:w1"
+      assert attrs["mimir.path"] == "workflow:w1"
       assert attrs["mimir.workflow.id"] == "w1"
     end
   end

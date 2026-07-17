@@ -4,8 +4,9 @@
 
 Additive provenance field: `Mimir.Event` gains `path`, a materialized call
 path — an ordered list of `"<kind>:<id>"` frames (closed kind union
-`wf | step | agent | conv`), outermost → innermost spawner, defaulting to
-`[]`. One event, in isolation, recreates its full spawn lineage; an event's
+`workflow | workflow_step | agent | conversation`), outermost → innermost
+spawner, defaulting to `[]`. One event, in isolation, recreates its full
+spawn lineage; an event's
 immediate spawner is `List.last(path)`. This is deliberately the **spawn
 axis** ("who created me"), distinct from any data-dependency axis a caller
 tracks separately ("whose output did I consume") — the two can diverge and

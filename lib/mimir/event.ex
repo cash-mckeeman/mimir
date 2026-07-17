@@ -28,18 +28,18 @@ defmodule Mimir.Event do
   ## `path` — materialized call-path provenance
 
   `path` is an ordered list of typed frames, **outermost → innermost
-  spawner**: `["wf:wf_123", "step:step_5", "agent:sess_9"]` reads as "a
-  workflow spawned a step which spawned an agent session." One event, in
-  isolation, recreates its full spawn lineage and depth. An event's
-  immediate spawner is `List.last(path)`; the empty list (the default)
-  means "no recorded spawner" (a top-level event).
+  spawner**: `["workflow:wf_123", "workflow_step:step_5", "agent:sess_9"]`
+  reads as "a workflow spawned a step which spawned an agent session." One
+  event, in isolation, recreates its full spawn lineage and depth. An
+  event's immediate spawner is `List.last(path)`; the empty list (the
+  default) means "no recorded spawner" (a top-level event).
 
   Each frame is `"<kind>:<id>"` where `kind` is one of a **closed union per
-  release** (`wf | step | agent | conv`) and `id` is a non-empty string.
-  `conv` is reserved for a future conversation-scoped caller and is not
-  produced by anything in this release. Requests are leaf events, not
-  scopes — there is no `req:` frame; `request_id` stays a promoted id field
-  on the event itself.
+  release** (`workflow | workflow_step | agent | conversation`) and `id` is
+  a non-empty string. `conversation` is reserved for a future
+  conversation-scoped caller and is not produced by anything in this
+  release. Requests are leaf events, not scopes — there is no `req:` frame;
+  `request_id` stays a promoted id field on the event itself.
 
   `path` is the **spawn axis**: "who created me." It is deliberately
   distinct from a data-dependency axis some callers track separately
@@ -113,7 +113,7 @@ defmodule Mimir.Event do
   @agent_types ~w(session_open session_reattach turn_start turn_end terminal error)a
   @workflow_types ~w(step_start step_stop step_exception)a
 
-  @frame_kinds ~w(wf step agent conv)
+  @frame_kinds ~w(workflow workflow_step agent conversation)
 
   @domain_lookup %{"llm" => :llm, "agent" => :agent, "workflow" => :workflow}
 
