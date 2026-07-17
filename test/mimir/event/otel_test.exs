@@ -121,4 +121,69 @@ defmodule Mimir.Event.OTelTest do
       assert OTel.render(ev).type == "workflow"
     end
   end
+
+  describe "path — mimir.path, every domain" do
+    test "path-less events render exactly as before this field existed (byte-compat goldens unchanged)" do
+      {:ok, usage_ev} =
+        Event.llm(:usage, seq: 1, ts: 2, usage: %{input_tokens: 10, output_tokens: 2})
+
+      {:ok, tool_ev} = Event.llm(:tool_call, seq: 1, ts: 2, tool: %{id: "t1", name: "echo"})
+
+      {:ok, reasoning_ev} =
+        Event.llm(:reasoning, seq: 1, ts: 2, raw: %{"milestone" => "planning"})
+
+      assert usage_ev.path == []
+      assert OTel.render(usage_ev).attributes == fixture!("usage_attrs")
+      refute Map.has_key?(OTel.render(usage_ev).attributes, "mimir.path")
+
+      assert OTel.render(tool_ev).attributes == fixture!("tool_use_attrs")
+      refute Map.has_key?(OTel.render(tool_ev).attributes, "mimir.path")
+
+      assert OTel.render(reasoning_ev).attributes == fixture!("reasoning_attrs")
+      refute Map.has_key?(OTel.render(reasoning_ev).attributes, "mimir.path")
+    end
+
+    test "llm event with a path adds mimir.path alongside the existing gen_ai.* attributes" do
+      {:ok, ev} =
+        Event.llm(:usage,
+          seq: 1,
+          ts: 2,
+          usage: %{input_tokens: 10, output_tokens: 2},
+          path: ["workflow:wf_123", "workflow_step:step_5", "agent:sess_9"]
+        )
+
+      attrs = OTel.render(ev).attributes
+      assert attrs["mimir.path"] == "workflow:wf_123/workflow_step:step_5/agent:sess_9"
+      assert attrs["gen_ai.usage.input_tokens"] == 10
+    end
+
+    test "agent event with a path adds mimir.path alongside the agent attributes" do
+      {:ok, ev} =
+        Event.agent(:session_open,
+          seq: 0,
+          ts: 0,
+          session_id: "s1",
+          path: ["workflow:wf_1", "agent:s1"]
+        )
+
+      attrs = OTel.render(ev).attributes
+      assert attrs["mimir.path"] == "workflow:wf_1/agent:s1"
+      assert attrs["gen_ai.operation.name"] == "invoke_agent"
+    end
+
+    test "workflow event with a path adds mimir.path alongside the workflow attributes" do
+      {:ok, ev} =
+        Event.workflow(:step_start,
+          seq: 0,
+          ts: 0,
+          workflow_id: "w1",
+          step_id: "st1",
+          path: ["workflow:w1"]
+        )
+
+      attrs = OTel.render(ev).attributes
+      assert attrs["mimir.path"] == "workflow:w1"
+      assert attrs["mimir.workflow.id"] == "w1"
+    end
+  end
 end

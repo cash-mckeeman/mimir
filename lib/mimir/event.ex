@@ -7,8 +7,10 @@ defmodule Mimir.Event do
   verbatim carve-out).
 
   Build with `llm/2`, `agent/2`, or `workflow/2` — each validates `type`
-  against its domain's closed union and returns `{:ok, t()} | {:error,
-  {:bad_type, domain, type}}`. Never construct the struct directly.
+  against its domain's closed union and each `:path` frame against the
+  closed frame-kind union (see "`path`" below), returning `{:ok, t()} |
+  {:error, {:bad_type, domain, type} | {:bad_frame, frame}}`. Never
+  construct the struct directly.
 
   `to_wire/1` / `from_wire/1` are the struct-in-BEAM / JSON-at-the-boundary
   pair (the house `DecisionRecord.to_event` pattern): `to_wire/1` always
@@ -22,6 +24,40 @@ defmodule Mimir.Event do
 
   Type unions are closed per release; tolerance for unknown telemetry frames
   lives at collection (collectors count + debug-log + drop), never here.
+
+  ## `path` — materialized call-path provenance
+
+  `path` is an ordered list of typed frames, **outermost → innermost
+  spawner**: `["workflow:wf_123", "workflow_step:step_5", "agent:sess_9"]`
+  reads as "a workflow spawned a step which spawned an agent session." One
+  event, in isolation, recreates its full spawn lineage and depth. An
+  event's immediate spawner is `List.last(path)`; the empty list (the
+  default) means "no recorded spawner" (a top-level event).
+
+  Each frame is `"<kind>:<id>"` where `kind` is one of a **closed union per
+  release** (`workflow | workflow_step | agent | conversation`) and `id` is
+  a non-empty string. `conversation` is reserved for a future
+  conversation-scoped caller and is not produced by anything in this
+  release. Requests are leaf events, not scopes — there is no `req:` frame;
+  `request_id` stays a promoted id field on the event itself.
+
+  `path` is the **spawn axis**: "who created me." It is deliberately
+  distinct from a data-dependency axis some callers track separately
+  ("whose output did I consume", e.g. a step's first upstream dependency) —
+  a step can depend on another step's output without either having spawned
+  the other. Do not conflate the two; this module only carries the spawn
+  axis.
+
+  Constructors validate every frame against the closed kind set and the
+  non-empty-id rule, returning `{:error, {:bad_frame, frame}}` for the
+  first offender (compile-time fixed kind list — never `String.to_atom/1`
+  on caller-supplied data). `to_wire/1` includes the `"path"` key only when
+  the list is non-empty (same omit-when-absent idiom as the id fields).
+  `from_wire/1` treats `path` as malformed-optional data, the house
+  `RouteResponse`-style posture for tolerant boundary parsing: a missing
+  key is `[]`, and a non-list or any frame failing validation degrades the
+  *whole* path to `[]` rather than erroring — old persisted rows and
+  forward/backward version skew both read cleanly.
   """
 
   @enforce_keys [:domain, :type, :seq, :ts]
@@ -36,7 +72,8 @@ defmodule Mimir.Event do
     :session_id,
     :usage,
     :tool,
-    raw: %{}
+    raw: %{},
+    path: []
   ]
 
   @type domain :: :llm | :agent | :workflow
@@ -68,12 +105,15 @@ defmodule Mimir.Event do
           session_id: String.t() | nil,
           usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()} | nil,
           tool: %{id: String.t() | nil, name: String.t()} | nil,
-          raw: map()
+          raw: map(),
+          path: [String.t()]
         }
 
   @llm_types ~w(request_start request_stop reasoning tool_call usage turn_complete exception)a
   @agent_types ~w(session_open session_reattach turn_start turn_end terminal error)a
   @workflow_types ~w(step_start step_stop step_exception)a
+
+  @frame_kinds ~w(workflow workflow_step agent conversation)
 
   @domain_lookup %{"llm" => :llm, "agent" => :agent, "workflow" => :workflow}
 
@@ -87,29 +127,52 @@ defmodule Mimir.Event do
   Build an `llm.*` event. `type` must be one of `t:llm_type/0`; `attrs` is a
   keyword list or map carrying `:seq` (default `0`), `:ts` (default
   `System.monotonic_time(:nanosecond)`), the four correlation ids, `:usage`,
-  `:tool`, and `:raw` (default `%{}`).
+  `:tool`, `:path` (default `[]` — see the moduledoc), and `:raw` (default
+  `%{}`). Returns `{:error, {:bad_frame, frame}}` if any `:path` frame fails
+  validation (bad kind, empty id, or non-binary frame).
   """
   @spec llm(llm_type(), keyword() | map()) ::
-          {:ok, t()} | {:error, {:bad_type, :llm, term()}}
+          {:ok, t()} | {:error, {:bad_type, :llm, term()} | {:bad_frame, term()}}
   def llm(type, attrs), do: build(:llm, @llm_types, type, attrs)
 
   @doc "Build an `agent.*` event. See `llm/2` for `attrs`."
   @spec agent(agent_type(), keyword() | map()) ::
-          {:ok, t()} | {:error, {:bad_type, :agent, term()}}
+          {:ok, t()} | {:error, {:bad_type, :agent, term()} | {:bad_frame, term()}}
   def agent(type, attrs), do: build(:agent, @agent_types, type, attrs)
 
   @doc "Build a `workflow.*` event. See `llm/2` for `attrs`."
   @spec workflow(workflow_type(), keyword() | map()) ::
-          {:ok, t()} | {:error, {:bad_type, :workflow, term()}}
+          {:ok, t()} | {:error, {:bad_type, :workflow, term()} | {:bad_frame, term()}}
   def workflow(type, attrs), do: build(:workflow, @workflow_types, type, attrs)
 
   defp build(domain, allowed, type, attrs) do
-    if type in allowed do
-      {:ok, construct(domain, type, attrs)}
+    with true <- type in allowed,
+         a = Map.new(attrs),
+         :ok <- validate_path(Map.get(a, :path, [])) do
+      {:ok, construct(domain, type, a)}
     else
-      {:error, {:bad_type, domain, type}}
+      false -> {:error, {:bad_type, domain, type}}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp validate_path(path) when is_list(path) do
+    case Enum.find(path, &(not valid_frame?(&1))) do
+      nil -> :ok
+      bad -> {:error, {:bad_frame, bad}}
+    end
+  end
+
+  defp validate_path(other), do: {:error, {:bad_frame, other}}
+
+  defp valid_frame?(frame) when is_binary(frame) do
+    case String.split(frame, ":", parts: 2) do
+      [kind, id] -> kind in @frame_kinds and id != ""
+      _ -> false
+    end
+  end
+
+  defp valid_frame?(_), do: false
 
   defp construct(domain, type, attrs) do
     a = Map.new(attrs)
@@ -125,6 +188,7 @@ defmodule Mimir.Event do
       session_id: a[:session_id],
       usage: a[:usage],
       tool: a[:tool],
+      path: Map.get(a, :path, []),
       raw: Map.get(a, :raw, %{})
     }
   end
@@ -132,7 +196,8 @@ defmodule Mimir.Event do
   @doc """
   Render a `t()` to its wire form: a string-keyed map, correlation ids nested
   under `"ids"` (nils omitted, `"ids"` itself always present), `"usage"`/
-  `"tool"` present only when not `nil`, `"raw"` always present.
+  `"tool"` present only when not `nil`, `"path"` present only when non-empty,
+  `"raw"` always present.
   """
   @spec to_wire(t()) :: map()
   def to_wire(%__MODULE__{} = ev) do
@@ -146,7 +211,11 @@ defmodule Mimir.Event do
     }
     |> put_present("usage", wire_usage(ev.usage))
     |> put_present("tool", wire_tool(ev.tool))
+    |> maybe_put_path(ev.path)
   end
+
+  defp maybe_put_path(map, []), do: map
+  defp maybe_put_path(map, path), do: Map.put(map, "path", path)
 
   defp ids_map(ev) do
     %{}
@@ -174,6 +243,11 @@ defmodule Mimir.Event do
   `"domain"` is `{:error, {:bad_event, {:bad_domain, term()}}}`, and an
   unrecognized `"type"` for the domain is `{:error, {:bad_event, {:bad_type,
   domain, term()}}}`. Never raises; never calls `String.to_atom/1`.
+
+  `"path"` is malformed-optional data: a missing key parses to `[]`, and a
+  non-list or any element failing frame validation degrades the whole path
+  to `[]` rather than failing the parse (a topology hint is never worth
+  rejecting an otherwise-valid event over).
   """
   @spec from_wire(map()) :: {:ok, t()} | {:error, {:bad_event, term()}}
   def from_wire(%{"domain" => domain_str, "type" => type_str} = wire)
@@ -192,6 +266,7 @@ defmodule Mimir.Event do
          session_id: ids["session_id"],
          usage: parse_usage(wire["usage"]),
          tool: parse_tool(wire["tool"]),
+         path: parse_path(wire["path"]),
          raw: as_map(wire["raw"])
        )}
     else
@@ -225,4 +300,10 @@ defmodule Mimir.Event do
 
   defp parse_tool(%{"name" => name} = t), do: %{id: t["id"], name: name}
   defp parse_tool(_), do: nil
+
+  defp parse_path(path) when is_list(path) do
+    if Enum.all?(path, &valid_frame?/1), do: path, else: []
+  end
+
+  defp parse_path(_), do: []
 end
