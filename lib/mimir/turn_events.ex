@@ -1,6 +1,6 @@
 defmodule Mimir.TurnEvents do
   @moduledoc """
-  Per-request ordered `gen_ai.*` event buffer.
+  Per-request ordered `Mimir.Event` buffer.
 
   Two ETS tables: a seq counter and an ordered-set event store, both keyed
   by a request id. Table names default to `:mimir_turn_seq` /
@@ -10,12 +10,21 @@ defmodule Mimir.TurnEvents do
 
   The "current" request id is held in the process dictionary; the embedder
   sets it (`put_current/1`) at the start of a request, telemetry handlers and
-  the embedder append under it (`append_current/2`), and the embedder drains
+  the embedder append under it (`append_current/1`), and the embedder drains
   the buffer with `take/1` (or `take_current/0`) when it meters the request.
+
+  **The buffer owns `seq`/`ts`, not the caller.** `append/2` accepts the
+  caller's `%Mimir.Event{}` as-given, but stamps it with the request's next
+  1-based insertion-order `seq` and the append-time monotonic `ts` before
+  storing it — whatever `seq`/`ts` the caller's constructor set is
+  overwritten. `take/1`/`take_current/0` return events in that
+  buffer-assigned seq order, carrying the buffer-assigned `seq`/`ts`.
 
   A TTL sweep reclaims buffers orphaned by a crashed request.
   """
   use GenServer
+
+  alias Mimir.Event
 
   @pdkey {__MODULE__, :rid}
   @ttl_ns 120_000_000_000
@@ -46,11 +55,18 @@ defmodule Mimir.TurnEvents do
   @spec current() :: request_id() | nil
   def current, do: Process.get(@pdkey)
 
-  @doc "Append one event under `rid`. No-op for a nil id. Never raises."
-  @spec append(request_id() | nil, String.t() | atom(), map()) :: :ok
-  def append(nil, _type, _gen_ai), do: :ok
+  @doc """
+  Append one event under `rid`. No-op for a nil id. Never raises.
 
-  def append(rid, type, gen_ai) when is_map(gen_ai) do
+  The buffer owns `seq`/`ts`: the stored event's `seq` is replaced with the
+  request's next 1-based insertion-order counter and `ts` with the
+  append-time monotonic clock, overwriting whatever `event.seq`/`event.ts`
+  the caller's constructor set.
+  """
+  @spec append(request_id() | nil, Event.t()) :: :ok
+  def append(nil, %Event{}), do: :ok
+
+  def append(rid, %Event{} = event) when is_binary(rid) or is_integer(rid) do
     seq =
       :ets.update_counter(
         seq_table(),
@@ -59,52 +75,39 @@ defmodule Mimir.TurnEvents do
         {rid, 0, System.monotonic_time(:nanosecond)}
       )
 
-    :ets.insert(
-      buf_table(),
-      {{rid, seq}, System.monotonic_time(:nanosecond), to_string(type), gen_ai}
-    )
+    ts = System.monotonic_time(:nanosecond)
+    :ets.insert(buf_table(), {{rid, seq}, ts, %{event | seq: 0, ts: 0}})
 
     :ok
   rescue
     _ -> :ok
   end
 
-  def append(_rid, _type, _gen_ai), do: :ok
+  def append(_rid, _event), do: :ok
 
   @doc "Append under the process-current id."
-  @spec append_current(String.t() | atom(), map()) :: :ok
-  def append_current(type, gen_ai), do: append(current(), type, gen_ai)
-
-  @doc """
-  The persisted event envelope — the single source of the shape stored by
-  callers that persist `gen_ai` events (e.g. a route log) and returned by
-  `take/1`. Anything writing an event row outside the buffer builds it here
-  so the envelope vocabulary cannot fork.
-  """
-  @spec envelope(non_neg_integer(), integer(), String.t() | atom(), map()) :: map()
-  def envelope(seq, ts, type, gen_ai) when is_map(gen_ai) do
-    %{"seq" => seq, "ts" => ts, "type" => to_string(type), "gen_ai" => gen_ai}
-  end
+  @spec append_current(Event.t()) :: :ok
+  def append_current(%Event{} = event), do: append(current(), event)
 
   @doc "Take (and clear) the seq-ordered event list for `rid`."
-  @spec take(request_id() | nil) :: [map()]
+  @spec take(request_id() | nil) :: [Event.t()]
   def take(nil), do: []
 
   def take(rid) do
-    spec = [{{{rid, :"$1"}, :"$2", :"$3", :"$4"}, [], [{{:"$1", :"$2", :"$3", :"$4"}}]}]
+    spec = [{{{rid, :"$1"}, :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}]
     rows = :ets.select(buf_table(), spec)
-    :ets.match_delete(buf_table(), {{rid, :_}, :_, :_, :_})
+    :ets.match_delete(buf_table(), {{rid, :_}, :_, :_})
     :ets.delete(seq_table(), rid)
 
     rows
-    |> Enum.sort_by(fn {seq, _ts, _type, _g} -> seq end)
-    |> Enum.map(fn {seq, ts, type, g} -> envelope(seq, ts, type, g) end)
+    |> Enum.sort_by(fn {seq, _ts, _event} -> seq end)
+    |> Enum.map(fn {seq, ts, %Event{} = event} -> %Event{event | seq: seq, ts: ts} end)
   rescue
     _ -> []
   end
 
   @doc "Take the current id's list and clear the current id."
-  @spec take_current() :: [map()]
+  @spec take_current() :: [Event.t()]
   def take_current do
     rid = current()
     Process.delete(@pdkey)
@@ -129,11 +132,27 @@ defmodule Mimir.TurnEvents do
 
   @impl true
   def handle_info(:sweep, state) do
-    cutoff = System.monotonic_time(:nanosecond) - @ttl_ns
-    :ets.select_delete(buf_table(), [{{:_, :"$1", :_, :_}, [{:<, :"$1", cutoff}], [true]}])
-    :ets.select_delete(seq_table(), [{{:_, :_, :"$1"}, [{:<, :"$1", cutoff}], [true]}])
+    sweep()
     schedule_sweep()
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_call(:sweep_now, _from, state) do
+    sweep()
+    {:reply, :ok, state}
+  end
+
+  @doc false
+  # Test-only synchronous sweep hook — the sweep is otherwise driven by a
+  # 60s timer, too slow to exercise deterministically in the suite.
+  @spec sweep_now() :: :ok
+  def sweep_now, do: GenServer.call(__MODULE__, :sweep_now)
+
+  defp sweep do
+    cutoff = System.monotonic_time(:nanosecond) - @ttl_ns
+    :ets.select_delete(buf_table(), [{{:_, :"$1", :_}, [{:<, :"$1", cutoff}], [true]}])
+    :ets.select_delete(seq_table(), [{{:_, :_, :"$1"}, [{:<, :"$1", cutoff}], [true]}])
   end
 
   defp schedule_sweep, do: Process.send_after(self(), :sweep, @sweep_interval_ms)

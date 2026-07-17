@@ -19,7 +19,7 @@ Add `mimir` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mimir, "~> 0.3.0"}
+    {:mimir, "~> 0.4.0"}
   ]
 end
 ```
@@ -36,8 +36,9 @@ end
 | `Mimir.DecisionRecord` | Typed routing-decision record; `to_event/1` renders the binary-keyed audit map. |
 | `Mimir.RouteLog` | Typed route outcome plus a request-log meta builder. |
 | `Mimir.Pricing` | Token usage to integer microdollar cost, config-first over a vendored LiteLLM pricing DB. |
-| `Mimir.TurnEvents` | Per-request ordered `gen_ai.*` event buffer. |
-| `Mimir.TurnEvents.GenAI` | Dependency-free builders for binary-keyed `gen_ai.*` attribute maps (OpenTelemetry GenAI semantic conventions). |
+| `Mimir.Event` | Domain-typed event vocabulary (`llm.*` / `agent.*` / `workflow.*`) — the vocabulary root `Mimir.TurnEvents` buffers and `Mimir.Ingest` promotes raw events onto. |
+| `Mimir.Event.OTel` | Canonical OTel GenAI semantic-convention rendering for `Mimir.Event` at the export edge — the one place that vocabulary still lives, on purpose. |
+| `Mimir.TurnEvents` | Per-request ordered `Mimir.Event` buffer; the buffer, not the caller, owns `seq`/`ts`. |
 | `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. Returns a parsed `%Mimir.RouteResponse{}`. |
 | `Mimir.RouteResponse` | Parsed routing-call result; `new/1` is the single boundary from wire map to struct. |
 | `Mimir.Grant` | Minted routing grant: key, budget, expiry. |
@@ -45,7 +46,7 @@ end
 | `Mimir.Candidate` | One catalog entry's routing verdict: chosen, ranked, or excluded. |
 | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
 | `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
-| `Mimir.Ingest` | Decision-correlated ingestion of raw session events into `Mimir.TurnEvents`. |
+| `Mimir.Ingest` | Decision-correlated ingestion of raw session events, promoted to `Mimir.Event` and appended to `Mimir.TurnEvents`. |
 | `Mimir.Sessions` | Canonical recipe: route response to session options (`model_config`, `turn_guard`, `telemetry_metadata`). |
 
 ## Design rules
@@ -204,8 +205,28 @@ the mid-run side and never raises.
 
 To correlate raw session events back to the routing decision for metering,
 call `Mimir.Ingest.handle_event/2` from your session handler's event hook;
-drain the buffered, correlated events with `Mimir.TurnEvents.take/1` when you
-meter the run.
+drain the buffered, correlated `%Mimir.Event{}` list with
+`Mimir.TurnEvents.take/1` when you meter the run.
+
+## Event vocabulary
+
+`Mimir.Event` is the domain-typed vocabulary root for everything that
+travels the `llm.* / agent.* / workflow.*` streams — LLM turns, agent-session
+lifecycle, and workflow steps each get their own closed `type` union under a
+`domain`, instead of one untyped junk-drawer payload. Build one with
+`Event.llm/2`, `Event.agent/2`, or `Event.workflow/2`; `Event.to_wire/1` /
+`Event.from_wire/1` are the struct-in-BEAM / JSON-at-the-boundary pair —
+`to_wire/1` is exactly the shape a caller should persist.
+
+`Mimir.TurnEvents.append/2` stores a `%Mimir.Event{}` under a request id; the
+buffer — not the caller — owns `seq`/`ts`, stamping both at append time.
+`Mimir.TurnEvents.take/1` returns the buffered events in that
+buffer-assigned order.
+
+The OpenTelemetry GenAI semantic-convention vocabulary (`gen_ai.*`) is not a
+domain concept here — it is one export-edge rendering, owned by
+`Mimir.Event.OTel.render/1`. Only that module renders `gen_ai.*` attributes;
+everything upstream of it works in typed `Mimir.Event` domains.
 
 ## Documentation
 

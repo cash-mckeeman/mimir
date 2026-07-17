@@ -10,9 +10,14 @@ defmodule Mimir.RouteLog do
   `{:grant_failed, reason}` means a placement was decided but not grantable
   (`status: "error"`, class `"grant_failed"`); the decision record survives
   the failure it explains.
+
+  Routing decisions are their own typed vocabulary — `DecisionRecord`/
+  `RouteLog` — and are never forced through the `Mimir.Event`
+  `llm.*`/`agent.*`/`workflow.*` envelope. `to_meta/2`'s `turn_events` entry
+  is a plain map built directly here, independent of `Mimir.TurnEvents`.
   """
 
-  alias Mimir.{DecisionRecord, TurnEvents}
+  alias Mimir.DecisionRecord
 
   @lane "router"
 
@@ -67,13 +72,13 @@ defmodule Mimir.RouteLog do
       status: status(log.outcome),
       error_class: error_class(log.outcome),
       error_detail: error_detail(log.outcome),
-      gen_ai_events: [
-        TurnEvents.envelope(
-          1,
-          ts,
-          "routing_decision",
-          DecisionRecord.to_event(log.decision_record)
-        )
+      turn_events: [
+        %{
+          "seq" => 1,
+          "ts" => ts,
+          "type" => "routing_decision",
+          "decision" => DecisionRecord.to_event(log.decision_record)
+        }
       ],
       workflow_id: log.correlation.workflow_id,
       step_id: log.correlation.step_id,

@@ -52,6 +52,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     Catalog,
     DecisionRecord,
     Descriptor,
+    Event,
     Health,
     Oracle,
     Pricing,
@@ -62,7 +63,6 @@ defmodule Mix.Tasks.Mimir.Smoke do
   }
 
   alias Mimir.Oracle.{Decision, Policy}
-  alias Mimir.TurnEvents.GenAI
 
   @model "anthropic:claude-sonnet-4-6"
   @rates %{@model => %{input: 3_000_000, output: 15_000_000}}
@@ -269,9 +269,9 @@ defmodule Mix.Tasks.Mimir.Smoke do
     meta = RouteLog.to_meta(log, 0)
     true = meta.status == "error"
     true = meta.error_class == "grant_failed"
-    [%{"type" => "routing_decision", "gen_ai" => payload}] = meta.gen_ai_events
+    [%{"type" => "routing_decision", "decision" => payload}] = meta.turn_events
     "rd_" <> _ = payload["decision_id"]
-    {:ok, "grant_failed meta + routing_decision envelope"}
+    {:ok, "grant_failed meta + routing_decision entry"}
   end
 
   defp pricing_stage do
@@ -327,14 +327,16 @@ defmodule Mix.Tasks.Mimir.Smoke do
   defp turn_events_stage do
     rid = "smoke-#{System.unique_integer([:positive])}"
     :ok = TurnEvents.put_current(rid)
-    :ok = TurnEvents.append_current("chat", GenAI.usage(10, 5))
-    :ok = TurnEvents.append_current("tool_use", GenAI.tool_use(%{name: "search", id: "t1"}))
+    {:ok, usage_ev} = Event.llm(:usage, usage: %{input_tokens: 10, output_tokens: 5})
+    {:ok, tool_ev} = Event.llm(:tool_call, tool: %{id: "t1", name: "search"})
+    :ok = TurnEvents.append_current(usage_ev)
+    :ok = TurnEvents.append_current(tool_ev)
 
     [first, second] = TurnEvents.take(rid)
-    true = first["seq"] < second["seq"]
-    true = first["type"] == "chat"
-    true = first["gen_ai"]["gen_ai.usage.input_tokens"] == 10
-    true = second["gen_ai"]["gen_ai.tool.name"] == "search"
+    true = first.seq < second.seq
+    true = first.type == :usage
+    true = first.usage.input_tokens == 10
+    true = second.tool.name == "search"
     [] = TurnEvents.take(rid)
     {:ok, "2 events buffered, ordered, drained"}
   end
@@ -450,7 +452,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
 
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hi"})
     [event] = Mimir.TurnEvents.take("req_smoke")
-    true = event["gen_ai"]["decision_id"] == "rd_smoke"
+    true = event.raw["decision_id"] == "rd_smoke"
 
     {:ok, "opts assembled; ingest correlated by decision_id"}
   end

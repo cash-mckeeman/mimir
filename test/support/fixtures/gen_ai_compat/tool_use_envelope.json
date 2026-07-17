@@ -1,0 +1,9 @@
+{
+  "gen_ai": {
+    "gen_ai.tool.call.id": "t1",
+    "gen_ai.tool.name": "echo"
+  },
+  "seq": 1,
+  "ts": 2,
+  "type": "tool_call"
+}

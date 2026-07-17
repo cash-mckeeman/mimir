@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.4.0 (2026-07-16)
+
+Replaces the `gen_ai` junk-drawer envelope with a domain-typed event
+vocabulary. `gen_ai` is demoted to what it always should have been: a wire
+format at the OTel export edge, not a domain model.
+
+- `Mimir.Event` — the new vocabulary root: a closed `domain`
+  (`:llm | :agent | :workflow`) × `type` union, typed correlation ids
+  (`request_id`, `workflow_id`, `step_id`, `session_id` — the correlation
+  spine is unchanged, just promoted to typed fields), promoted `usage`/
+  `tool` commons, and a `raw` carve-out for anything provider-specific.
+  `Event.llm/2`, `Event.agent/2`, `Event.workflow/2` build it;
+  `Event.to_wire/1` / `Event.from_wire/1` are the struct-in-BEAM /
+  JSON-at-the-boundary pair — `to_wire/1` is the shape downstream storage
+  should persist.
+- `Mimir.Event.OTel` — the one canonical OTel-attribute mapper for the
+  export edge. `llm.*` reproduces the retired `Mimir.TurnEvents.GenAI`
+  helpers' attribute names byte-for-byte (`gen_ai.usage.input_tokens`,
+  `gen_ai.tool.name`, `gen_ai.tool.call.id`, the bare `milestone` reasoning
+  marker); `agent.*` renders OTel GenAI *agent* semconv
+  (`gen_ai.operation.name=invoke_agent`, `gen_ai.conversation.id`);
+  `workflow.*` is plain `mimir.workflow.*` — no GenAI pretense.
+- `Mimir.TurnEvents` is rewritten around `Mimir.Event`: `append/2` takes
+  `rid` and an `%Event{}` — the buffer, not the caller, owns `seq`/`ts`,
+  overwriting whatever the caller's constructor set. `take/1`/
+  `take_current/0` return `[%Event{}]` in buffer-assigned seq order.
+- `Mimir.Ingest` promotes every ingested raw provider map to a `%Event{}`
+  (domain `:llm`) before buffering. `metadata`'s `"workflow_id"`/
+  `"step_id"` keys are unchanged, now threading into the event's typed
+  `workflow_id`/`step_id` fields instead of a loose payload merge.
+- `Mimir.RouteLog.to_meta/2`'s meta key is renamed `gen_ai_events` →
+  `turn_events` (matching the persisted column name the gateway migrates to
+  next); its one entry's payload key is renamed `"gen_ai"` → `"decision"`.
+  Routing decisions still never enter the `Mimir.Event` vocabulary —
+  `DecisionRecord`/`RouteLog` keep their own audit shape, by design.
+
+### BREAKING
+
+This is a big-bang rename — no deprecation shims, no dual shapes:
+
+- `Mimir.TurnEvents`'s old `append/3` (`rid, type, gen_ai_map`) is replaced
+  by `append/2` (`rid, %Mimir.Event{}`); the old `append_current/2` is
+  replaced by `append_current/1` (`%Mimir.Event{}`).
+- `Mimir.TurnEvents.take/1` / `take_current/0` now return `[%Mimir.Event{}]`,
+  not `[%{"seq" => _, "ts" => _, "type" => _, "gen_ai" => map()}]`.
+- `Mimir.TurnEvents`'s `envelope/4` is removed.
+- `Mimir.TurnEvents.GenAI` is removed. Its three builders (`reasoning/1`,
+  `tool_use/1`, `usage/2`) have no drop-in replacement — build a
+  `Mimir.Event` instead, and render it at the export edge with
+  `Mimir.Event.OTel.render/1` if you need the old attribute shapes.
+- `Mimir.RouteLog.to_meta/2`'s meta map key `gen_ai_events` is renamed
+  `turn_events`; its entry's `"gen_ai"` key is renamed `"decision"`.
+
+**Migration:** if you persist the old envelope shape
+(`%{"seq" => _, "ts" => _, "type" => _, "gen_ai" => map()}`), adopt
+`Mimir.Event.to_wire/1` / `Mimir.Event.from_wire/1` as the new persisted
+form — `to_wire/1` is exactly what downstream storage should write instead.
+The `mimir_gateway` 0.4.0-line release is the reference migration for this:
+its `request_log.gen_ai_events` → `turn_events` backfill transforms every
+existing row from the old envelope into `Event.to_wire/1`'s shape in place,
+row by row, inside the migration transaction — that transformer is the
+worked example to copy for any other store still holding the old shape.
+
 ## 0.3.0 (2026-07-06)
 
 Replaces the routing layer's bare-map vocabulary with typed structs, parsed at
