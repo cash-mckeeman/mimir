@@ -18,6 +18,8 @@ defmodule Mimir.CloudEvent do
   reader never rejects an otherwise-valid event over an optional-field hint.
   """
 
+  alias Mimir.CloudEvent.Types
+
   @specversion "1.0"
   @datacontenttype "application/json"
 
@@ -70,6 +72,28 @@ defmodule Mimir.CloudEvent do
          data: Map.get(a, :data, %{})
        }}
     end
+  end
+
+  @doc """
+  Wrap a lifecycle `Mimir.Event` as a CloudEvent. Sets `type` from the event's
+  domain/type via `Mimir.CloudEvent.Types.for_event/1` and `data` from
+  `Mimir.Event.to_wire/1`; the producer supplies `:id`, `:source` (required) and
+  optionally `:time`, `:subject` — this function invents none of them. Same
+  validation and return contract as `new/1`.
+  """
+  @spec from_event(Mimir.Event.t(), map() | keyword()) ::
+          {:ok, t()} | {:error, {:bad_cloudevent, term()}}
+  def from_event(%Mimir.Event{} = event, opts) do
+    o = Map.new(opts)
+
+    new(%{
+      id: Map.get(o, :id),
+      source: Map.get(o, :source),
+      type: Types.for_event(event),
+      time: Map.get(o, :time),
+      subject: Map.get(o, :subject),
+      data: Mimir.Event.to_wire(event)
+    })
   end
 
   @doc """

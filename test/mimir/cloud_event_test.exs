@@ -134,4 +134,39 @@ defmodule Mimir.CloudEventTest do
       assert {:error, {:bad_cloudevent, {:invalid_wire, "x"}}} = CloudEvent.from_wire("x")
     end
   end
+
+  describe "from_event/2" do
+    setup do
+      {:ok, event} =
+        Mimir.Event.llm(:tool_call,
+          request_id: "req_1",
+          seq: 2,
+          tool: %{id: "tu_1", name: "get_rows"}
+        )
+
+      %{event: event}
+    end
+
+    test "sets type from the taxonomy and data from Event.to_wire/1", %{event: event} do
+      {:ok, ce} =
+        CloudEvent.from_event(event,
+          id: "req_1:2",
+          source: "//mimir.bizinsights.ai/gateway/prod-1",
+          time: "2026-07-25T14:01:10Z",
+          subject: "req_1"
+        )
+
+      assert ce.type == "ai.bizinsights.mimir.llm.tool_call"
+      assert ce.data == Mimir.Event.to_wire(event)
+      assert ce.id == "req_1:2"
+      assert ce.source == "//mimir.bizinsights.ai/gateway/prod-1"
+      assert ce.time == "2026-07-25T14:01:10Z"
+      assert ce.subject == "req_1"
+    end
+
+    test "inherits new/1 validation — missing producer id errors", %{event: event} do
+      assert {:error, {:bad_cloudevent, {:missing, :id}}} =
+               CloudEvent.from_event(event, source: "s")
+    end
+  end
 end
