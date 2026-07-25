@@ -107,20 +107,70 @@ defmodule Mimir.CloudEventTest do
       assert {:ok, ce} == CloudEvent.from_wire(CloudEvent.to_wire(ce))
     end
 
-    test "from_wire/1 is tolerant: bad time -> nil, non-map data -> %{}, unknown keys ignored" do
+    test "from_wire/1 is tolerant about hints: bad time -> nil" do
       {:ok, ce} =
         CloudEvent.from_wire(%{
           "specversion" => "1.0",
           "id" => "i",
           "source" => "s",
           "type" => "t",
-          "time" => 123,
-          "data" => "not-a-map",
-          "extra" => "ignored"
+          "time" => 123
         })
 
       assert ce.time == nil
-      assert ce.data == %{}
+    end
+
+    test "from_wire/1 carries a non-object data verbatim rather than erasing it" do
+      for body <- [[1, 2, 3], "hello", 42, true, nil] do
+        {:ok, ce} =
+          CloudEvent.from_wire(%{
+            "specversion" => "1.0",
+            "id" => "i",
+            "source" => "s",
+            "type" => "t",
+            "data" => body
+          })
+
+        assert ce.data == body
+      end
+    end
+
+    test "a non-object body survives the full to_wire/from_wire round-trip" do
+      for body <- [[1, 2, 3], "hello", 42, true] do
+        {:ok, ce} = CloudEvent.new(%{id: "i", source: "s", type: "t", data: body})
+
+        assert CloudEvent.from_wire(CloudEvent.to_wire(ce)) == {:ok, ce}
+      end
+    end
+
+    test "data_base64 is carried verbatim and rendered instead of data" do
+      {:ok, ce} =
+        CloudEvent.from_wire(%{
+          "specversion" => "1.0",
+          "id" => "i",
+          "source" => "s",
+          "type" => "t",
+          "datacontenttype" => "application/octet-stream",
+          "data_base64" => "aGVsbG8="
+        })
+
+      assert ce.data_base64 == "aGVsbG8="
+
+      w = CloudEvent.to_wire(ce)
+      assert w["data_base64"] == "aGVsbG8="
+      refute Map.has_key?(w, "data")
+      assert CloudEvent.from_wire(w) == {:ok, ce}
+    end
+
+    test "new/1 rejects a body given as both data and data_base64" do
+      assert {:error, {:bad_cloudevent, :ambiguous_body}} =
+               CloudEvent.new(%{
+                 id: "i",
+                 source: "s",
+                 type: "t",
+                 data: %{"k" => "v"},
+                 data_base64: "aGVsbG8="
+               })
     end
 
     test "from_wire/1 rejects missing required attrs and a bad specversion" do

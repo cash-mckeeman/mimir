@@ -6,6 +6,11 @@ defmodule Mimir.CloudEvent do
 
   Body-agnostic: this layer never decodes `data` into a typed struct. A consumer
   that wants the body calls the body's own parser on `data`, keyed by `type`.
+  `data` is therefore **any JSON value**, not just an object — CloudEvents permits
+  an array, string, number, or boolean body, and the envelope carries whatever it
+  is verbatim rather than coercing it. A non-JSON (binary) body travels
+  base64-encoded in `data_base64` instead, per the JSON event format; the two are
+  mutually exclusive and decoding `data_base64` is the consumer's job.
 
   `Mimir.Event` is unchanged by this module — it becomes the `data` of a
   CloudEvent, not a CloudEvent itself (see `from_event/2`). The `id`/`source`/
@@ -30,11 +35,17 @@ defmodule Mimir.CloudEvent do
     :type,
     :time,
     :subject,
+    :data_base64,
     specversion: @specversion,
     datacontenttype: @datacontenttype,
     data: %{}
   ]
 
+  @typedoc """
+  `data` is the opaque body — any JSON value, carried verbatim and never
+  interpreted here (the documented open-payload carve-out). `data_base64` holds a
+  base64-encoded binary body instead; at most one of the two is ever set.
+  """
   @type t :: %__MODULE__{
           specversion: String.t(),
           id: String.t(),
@@ -43,13 +54,17 @@ defmodule Mimir.CloudEvent do
           time: String.t() | nil,
           subject: String.t() | nil,
           datacontenttype: String.t(),
-          data: map()
+          data: term(),
+          data_base64: String.t() | nil
         }
 
   @doc """
   Build a CloudEvent from `attrs`. `:id`, `:source`, `:type` are required
-  non-empty strings; `:time` (when present) must be RFC3339; `:subject`/`:data`
-  are optional. Returns `{:ok, t()} | {:error, {:bad_cloudevent, reason}}`.
+  non-empty strings; `:time` (when present) must be RFC3339; `:subject`,
+  `:data`, and `:data_base64` are optional. `:data` may be any JSON value and is
+  stored verbatim; supplying both `:data` and `:data_base64` is an error, since
+  the JSON event format allows only one body. Returns
+  `{:ok, t()} | {:error, {:bad_cloudevent, reason}}`.
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
   def new(attrs) do
@@ -61,7 +76,10 @@ defmodule Mimir.CloudEvent do
          time = Map.get(a, :time),
          :ok <- validate_time(time),
          subject = Map.get(a, :subject),
-         :ok <- validate_optional_string(subject, :subject) do
+         :ok <- validate_optional_string(subject, :subject),
+         data_base64 = Map.get(a, :data_base64),
+         :ok <- validate_optional_string(data_base64, :data_base64),
+         :ok <- validate_one_body(a) do
       {:ok,
        %__MODULE__{
          id: id,
@@ -69,7 +87,8 @@ defmodule Mimir.CloudEvent do
          type: type,
          time: time,
          subject: subject,
-         data: Map.get(a, :data, %{})
+         data: Map.get(a, :data, %{}),
+         data_base64: data_base64
        }}
     end
   end
@@ -98,8 +117,9 @@ defmodule Mimir.CloudEvent do
 
   @doc """
   Render to the CloudEvents JSON event format: a string-keyed map with the
-  context attributes and `data` as top-level keys. `time`/`subject` are omitted
-  when nil; the rest are always present. Always succeeds.
+  context attributes and the body as top-level keys. `time`/`subject` are omitted
+  when nil; the body is rendered as `data_base64` when one is set and as `data`
+  otherwise, never both. Always succeeds.
   """
   @spec to_wire(t()) :: map()
   def to_wire(%__MODULE__{} = ce) do
@@ -108,9 +128,9 @@ defmodule Mimir.CloudEvent do
       "id" => ce.id,
       "source" => ce.source,
       "type" => ce.type,
-      "datacontenttype" => ce.datacontenttype,
-      "data" => ce.data
+      "datacontenttype" => ce.datacontenttype
     }
+    |> put_body(ce)
     |> put_present("time", ce.time)
     |> put_present("subject", ce.subject)
   end
@@ -120,10 +140,10 @@ defmodule Mimir.CloudEvent do
   `id`, `source`, `type` must be present non-empty strings (else
   `{:error, {:bad_cloudevent, {:missing, key}}}`), and `specversion` must be
   `"1.0"` (else `{:error, {:bad_cloudevent, {:unsupported_specversion, v}}}`).
-  `time`/`subject` are tolerant (absent or non-string → nil), `data` is opaque
-  (non-map → `%{}`), unknown top-level keys are ignored. Never raises.
+  `time`/`subject` are tolerant (absent or non-string → nil); the body is carried
+  verbatim — `data` is any JSON value, `data_base64` any string. Never raises.
   """
-  @spec from_wire(map()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
+  @spec from_wire(term()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
   def from_wire(wire) when is_map(wire) do
     with {:ok, sv} <- required(wire, "specversion"),
          :ok <- check_specversion(sv),
@@ -139,7 +159,8 @@ defmodule Mimir.CloudEvent do
          time: tolerant_string(wire["time"]),
          subject: tolerant_string(wire["subject"]),
          datacontenttype: string_or_default(wire["datacontenttype"], @datacontenttype),
-         data: as_map(wire["data"])
+         data: Map.get(wire, "data", %{}),
+         data_base64: tolerant_string(wire["data_base64"])
        }}
     end
   end
@@ -174,6 +195,20 @@ defmodule Mimir.CloudEvent do
   defp validate_optional_string(v, _key) when is_binary(v) and v != "", do: :ok
   defp validate_optional_string(_v, key), do: {:error, {:bad_cloudevent, {:blank, key}}}
 
+  # The JSON event format carries the body in `data` XOR `data_base64`.
+  defp validate_one_body(attrs) do
+    if Map.has_key?(attrs, :data) and not is_nil(Map.get(attrs, :data_base64)) do
+      {:error, {:bad_cloudevent, :ambiguous_body}}
+    else
+      :ok
+    end
+  end
+
+  defp put_body(map, %__MODULE__{data_base64: b64}) when is_binary(b64),
+    do: Map.put(map, "data_base64", b64)
+
+  defp put_body(map, %__MODULE__{data: data}), do: Map.put(map, "data", data)
+
   defp put_present(map, _key, nil), do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
 
@@ -185,7 +220,4 @@ defmodule Mimir.CloudEvent do
 
   defp string_or_default(s, _default) when is_binary(s) and s != "", do: s
   defp string_or_default(_, default), do: default
-
-  defp as_map(m) when is_map(m), do: m
-  defp as_map(_), do: %{}
 end
