@@ -38,6 +38,8 @@ end
 | `Mimir.Pricing` | Token usage to integer microdollar cost, config-first over a vendored LiteLLM pricing DB. |
 | `Mimir.Event` | Domain-typed event vocabulary (`llm.*` / `agent.*` / `workflow.*`) — the vocabulary root `Mimir.TurnEvents` buffers and `Mimir.Ingest` promotes raw events onto. |
 | `Mimir.Event.OTel` | Canonical OTel GenAI semantic-convention rendering for `Mimir.Event` at the export edge — the one place that vocabulary still lives, on purpose. |
+| `Mimir.CloudEvent` | CloudEvents v1.0 envelope — wraps any domain body (a `Mimir.Event` wire map, a decision record) in `data` with the standard context attributes as siblings. The second export edge. |
+| `Mimir.CloudEvent.Types` | The `ai.bizinsights.mimir.*` CloudEvents `type` taxonomy — one home for the namespace, so producers never hand-assemble a type string. |
 | `Mimir.TurnEvents` | Per-request ordered `Mimir.Event` buffer; the buffer, not the caller, owns `seq`/`ts`. |
 | `Mimir.RouterClient` | Behaviour for routing clients, with an HTTP (Req-based) implementation. Returns a parsed `%Mimir.RouteResponse{}`. |
 | `Mimir.RouteResponse` | Parsed routing-call result; `new/1` is the single boundary from wire map to struct. |
@@ -227,6 +229,32 @@ The OpenTelemetry GenAI semantic-convention vocabulary (`gen_ai.*`) is not a
 domain concept here — it is one export-edge rendering, owned by
 `Mimir.Event.OTel.render/1`. Only that module renders `gen_ai.*` attributes;
 everything upstream of it works in typed `Mimir.Event` domains.
+
+`Mimir.CloudEvent` is the second export edge, on the same principle. A
+CloudEvents v1.0 envelope wraps a domain body in `data` and carries the standard
+context attributes — `id`, `source`, `type`, `time` — alongside it.
+`Mimir.Event` is deliberately unchanged by this: it has no `id`/`source` and its
+`ts` is monotonic rather than wall-clock, so it becomes the *body* of a
+CloudEvent, never a CloudEvent itself.
+
+```elixir
+{:ok, ce} =
+  Mimir.CloudEvent.from_event(event,
+    id: "req_1:2",
+    source: "//mimir.bizinsights.ai/gateway/prod-1",
+    time: "2026-07-25T14:01:10.123Z"
+  )
+
+Mimir.CloudEvent.to_wire(ce)
+#=> %{"specversion" => "1.0", "type" => "ai.bizinsights.mimir.llm.tool_call",
+#=>   "data" => %{"domain" => "llm", ...}, ...}
+```
+
+The `id`, `source`, and `time` a CloudEvent needs are supplied by the *producer*
+that wraps the body — `from_event/2` validates their shape and invents none of
+them. Type strings come from `Mimir.CloudEvent.Types`, never hand-assembled.
+Construction is strict; `from_wire/1` is tolerant and never raises, carrying an
+unknown extension attribute through rather than dropping it.
 
 ## Documentation
 
