@@ -162,6 +162,57 @@ defmodule Mimir.CloudEventTest do
       assert CloudEvent.from_wire(w) == {:ok, ce}
     end
 
+    test "dataschema round-trips and is omitted when nil" do
+      {:ok, plain} = CloudEvent.new(%{id: "i", source: "s", type: "t"})
+      refute Map.has_key?(CloudEvent.to_wire(plain), "dataschema")
+
+      {:ok, ce} =
+        CloudEvent.new(%{
+          id: "i",
+          source: "s",
+          type: "t",
+          dataschema: "https://schemas.bizinsights.ai/llm/v1.json"
+        })
+
+      w = CloudEvent.to_wire(ce)
+      assert w["dataschema"] == "https://schemas.bizinsights.ai/llm/v1.json"
+      assert CloudEvent.from_wire(w) == {:ok, ce}
+    end
+
+    test "extension attributes survive a parse/render trip at the top level" do
+      wire = %{
+        "specversion" => "1.0",
+        "id" => "i",
+        "source" => "s",
+        "type" => "t",
+        "traceparent" => "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        "tracestate" => "vendor=opaque",
+        "partitionkey" => "req_1"
+      }
+
+      {:ok, ce} = CloudEvent.from_wire(wire)
+
+      assert ce.extensions == %{
+               "traceparent" => "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+               "tracestate" => "vendor=opaque",
+               "partitionkey" => "req_1"
+             }
+
+      w = CloudEvent.to_wire(ce)
+      assert w["traceparent"] == "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+      assert CloudEvent.from_wire(w) == {:ok, ce}
+    end
+
+    test "new/1 rejects an extension that shadows a modeled attribute" do
+      base = %{id: "i", source: "s", type: "t"}
+
+      assert {:error, {:bad_cloudevent, {:reserved_extension, "data"}}} =
+               CloudEvent.new(Map.put(base, :extensions, %{"data" => "hijacked"}))
+
+      assert {:error, {:bad_cloudevent, {:bad_extension, :traceparent}}} =
+               CloudEvent.new(Map.put(base, :extensions, %{traceparent: "00-abc"}))
+    end
+
     test "new/1 rejects a body given as both data and data_base64" do
       assert {:error, {:bad_cloudevent, :ambiguous_body}} =
                CloudEvent.new(%{
@@ -213,6 +264,20 @@ defmodule Mimir.CloudEventTest do
       assert ce.source == "//mimir.bizinsights.ai/gateway/prod-1"
       assert ce.time == "2026-07-25T14:01:10Z"
       assert ce.subject == "req_1"
+    end
+
+    test "passes producer-supplied dataschema and extensions through", %{event: event} do
+      {:ok, ce} =
+        CloudEvent.from_event(event,
+          id: "req_1:2",
+          source: "//mimir.bizinsights.ai/gateway/prod-1",
+          dataschema: "https://schemas.bizinsights.ai/llm/v1.json",
+          extensions: %{"traceparent" => "00-abc-def-01"}
+        )
+
+      assert ce.dataschema == "https://schemas.bizinsights.ai/llm/v1.json"
+      assert ce.extensions == %{"traceparent" => "00-abc-def-01"}
+      assert CloudEvent.from_wire(CloudEvent.to_wire(ce)) == {:ok, ce}
     end
 
     test "inherits new/1 validation — missing producer id errors", %{event: event} do

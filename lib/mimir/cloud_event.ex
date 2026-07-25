@@ -28,6 +28,11 @@ defmodule Mimir.CloudEvent do
   @specversion "1.0"
   @datacontenttype "application/json"
 
+  # The CloudEvents v1.0 attributes this struct models by name. Anything else at
+  # the top level of a wire event is an extension attribute.
+  @known_attributes ~w(specversion id source type time subject datacontenttype
+                       dataschema data data_base64)
+
   @enforce_keys [:id, :source, :type]
   defstruct [
     :id,
@@ -35,16 +40,24 @@ defmodule Mimir.CloudEvent do
     :type,
     :time,
     :subject,
+    :dataschema,
     :data_base64,
     specversion: @specversion,
     datacontenttype: @datacontenttype,
-    data: %{}
+    data: %{},
+    extensions: %{}
   ]
 
   @typedoc """
   `data` is the opaque body — any JSON value, carried verbatim and never
   interpreted here (the documented open-payload carve-out). `data_base64` holds a
   base64-encoded binary body instead; at most one of the two is ever set.
+
+  `extensions` is the open bag of CloudEvents extension attributes (the other
+  documented carve-out): string-keyed, carried verbatim in both directions, never
+  interpreted. It is how context this release does not model by name —
+  `traceparent`/`tracestate` for distributed tracing, `partitionkey`, a
+  broker-specific attribute — survives a parse/render trip intact.
   """
   @type t :: %__MODULE__{
           specversion: String.t(),
@@ -54,8 +67,10 @@ defmodule Mimir.CloudEvent do
           time: String.t() | nil,
           subject: String.t() | nil,
           datacontenttype: String.t(),
+          dataschema: String.t() | nil,
           data: term(),
-          data_base64: String.t() | nil
+          data_base64: String.t() | nil,
+          extensions: %{optional(String.t()) => term()}
         }
 
   @doc """
@@ -63,7 +78,9 @@ defmodule Mimir.CloudEvent do
   non-empty strings; `:time` (when present) must be RFC3339; `:subject`,
   `:data`, and `:data_base64` are optional. `:data` may be any JSON value and is
   stored verbatim; supplying both `:data` and `:data_base64` is an error, since
-  the JSON event format allows only one body. Returns
+  the JSON event format allows only one body. `:dataschema` (when present) must be
+  a non-empty string, and `:extensions` a string-keyed map whose keys do not
+  shadow a CloudEvents attribute this struct already models. Returns
   `{:ok, t()} | {:error, {:bad_cloudevent, reason}}`.
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
@@ -77,9 +94,13 @@ defmodule Mimir.CloudEvent do
          :ok <- validate_time(time),
          subject = Map.get(a, :subject),
          :ok <- validate_optional_string(subject, :subject),
+         dataschema = Map.get(a, :dataschema),
+         :ok <- validate_optional_string(dataschema, :dataschema),
          data_base64 = Map.get(a, :data_base64),
          :ok <- validate_optional_string(data_base64, :data_base64),
-         :ok <- validate_one_body(a) do
+         :ok <- validate_one_body(a),
+         extensions = Map.get(a, :extensions, %{}),
+         :ok <- validate_extensions(extensions) do
       {:ok,
        %__MODULE__{
          id: id,
@@ -87,8 +108,10 @@ defmodule Mimir.CloudEvent do
          type: type,
          time: time,
          subject: subject,
+         dataschema: dataschema,
          data: Map.get(a, :data, %{}),
-         data_base64: data_base64
+         data_base64: data_base64,
+         extensions: extensions
        }}
     end
   end
@@ -97,8 +120,8 @@ defmodule Mimir.CloudEvent do
   Wrap a lifecycle `Mimir.Event` as a CloudEvent. Sets `type` from the event's
   domain/type via `Mimir.CloudEvent.Types.for_event/1` and `data` from
   `Mimir.Event.to_wire/1`; the producer supplies `:id`, `:source` (required) and
-  optionally `:time`, `:subject` — this function invents none of them. Same
-  validation and return contract as `new/1`.
+  optionally `:time`, `:subject`, `:dataschema`, `:extensions` — this function
+  invents none of them. Same validation and return contract as `new/1`.
   """
   @spec from_event(Mimir.Event.t(), map() | keyword()) ::
           {:ok, t()} | {:error, {:bad_cloudevent, term()}}
@@ -111,15 +134,18 @@ defmodule Mimir.CloudEvent do
       type: Types.for_event(event),
       time: Map.get(o, :time),
       subject: Map.get(o, :subject),
+      dataschema: Map.get(o, :dataschema),
+      extensions: Map.get(o, :extensions, %{}),
       data: Mimir.Event.to_wire(event)
     })
   end
 
   @doc """
   Render to the CloudEvents JSON event format: a string-keyed map with the
-  context attributes and the body as top-level keys. `time`/`subject` are omitted
-  when nil; the body is rendered as `data_base64` when one is set and as `data`
-  otherwise, never both. Always succeeds.
+  context attributes and the body as top-level keys. `time`/`subject`/`dataschema`
+  are omitted when nil; the body is rendered as `data_base64` when one is set and
+  as `data` otherwise, never both. Extension attributes are merged back in at the
+  top level, where CloudEvents puts them. Always succeeds.
   """
   @spec to_wire(t()) :: map()
   def to_wire(%__MODULE__{} = ce) do
@@ -133,6 +159,8 @@ defmodule Mimir.CloudEvent do
     |> put_body(ce)
     |> put_present("time", ce.time)
     |> put_present("subject", ce.subject)
+    |> put_present("dataschema", ce.dataschema)
+    |> Map.merge(ce.extensions)
   end
 
   @doc """
@@ -140,8 +168,11 @@ defmodule Mimir.CloudEvent do
   `id`, `source`, `type` must be present non-empty strings (else
   `{:error, {:bad_cloudevent, {:missing, key}}}`), and `specversion` must be
   `"1.0"` (else `{:error, {:bad_cloudevent, {:unsupported_specversion, v}}}`).
-  `time`/`subject` are tolerant (absent or non-string → nil); the body is carried
-  verbatim — `data` is any JSON value, `data_base64` any string. Never raises.
+  `time`/`subject`/`dataschema` are tolerant (absent or non-string → nil); the body
+  is carried verbatim — `data` is any JSON value, `data_base64` any string. Every
+  unrecognized top-level string key is preserved as an extension attribute rather
+  than discarded, so context this release does not model by name survives a
+  parse/render trip. Never raises.
   """
   @spec from_wire(term()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
   def from_wire(wire) when is_map(wire) do
@@ -159,8 +190,10 @@ defmodule Mimir.CloudEvent do
          time: tolerant_string(wire["time"]),
          subject: tolerant_string(wire["subject"]),
          datacontenttype: string_or_default(wire["datacontenttype"], @datacontenttype),
+         dataschema: tolerant_string(wire["dataschema"]),
          data: Map.get(wire, "data", %{}),
-         data_base64: tolerant_string(wire["data_base64"])
+         data_base64: tolerant_string(wire["data_base64"]),
+         extensions: collect_extensions(wire)
        }}
     end
   end
@@ -194,6 +227,29 @@ defmodule Mimir.CloudEvent do
   defp validate_optional_string(nil, _key), do: :ok
   defp validate_optional_string(v, _key) when is_binary(v) and v != "", do: :ok
   defp validate_optional_string(_v, key), do: {:error, {:bad_cloudevent, {:blank, key}}}
+
+  # An extension must not shadow an attribute the struct already models — to_wire/1
+  # merges extensions last, so a shadowing key would silently clobber the real one.
+  defp validate_extensions(ext) when is_map(ext) do
+    Enum.reduce_while(ext, :ok, fn {k, _v}, :ok ->
+      cond do
+        not is_binary(k) or k == "" -> {:halt, {:error, {:bad_cloudevent, {:bad_extension, k}}}}
+        k in @known_attributes -> {:halt, {:error, {:bad_cloudevent, {:reserved_extension, k}}}}
+        true -> {:cont, :ok}
+      end
+    end)
+  end
+
+  defp validate_extensions(ext), do: {:error, {:bad_cloudevent, {:bad_extensions, ext}}}
+
+  # Tolerant inverse: whatever is left at the top level once the modeled
+  # attributes are removed. Non-string keys can't occur in decoded JSON, but a
+  # caller may hand us a hand-built map, so they're dropped rather than trusted.
+  defp collect_extensions(wire) do
+    wire
+    |> Map.drop(@known_attributes)
+    |> Map.filter(fn {k, _v} -> is_binary(k) and k != "" end)
+  end
 
   # The JSON event format carries the body in `data` XOR `data_base64`.
   defp validate_one_body(attrs) do
