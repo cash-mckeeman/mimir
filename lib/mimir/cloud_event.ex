@@ -208,15 +208,27 @@ defmodule Mimir.CloudEvent do
   def from_wire(other), do: {:error, {:bad_cloudevent, {:invalid_wire, other}}}
 
   @doc """
-  RFC3339 shape check: a non-empty string `DateTime.from_iso8601/1` accepts
-  (RFC3339 is the ISO-8601 profile it parses, and it requires a UTC offset).
+  Timestamp shape check: a string `DateTime.from_iso8601/1` accepts, which
+  requires a UTC offset and so rejects a naive local time.
+
+  That is *approximately* RFC3339, not exactly it, and `new/1` hard-rejects on
+  this — so the divergences are worth stating rather than implying. It rejects
+  three forms RFC3339 allows: the unknown-local-offset `-00:00` (§4.3), a
+  lowercase `t`/`z` separator (§5.6), and a leap second such as
+  `"2026-12-31T23:59:60Z"` (§5.8). It accepts one form the §5.6 grammar does not:
+  a space in place of `T`. In practice every mainstream producer emits an
+  uppercase `Z` or a numeric offset and is unaffected; a producer that does not
+  should normalize before construction.
   """
   @spec valid_time?(term()) :: boolean()
   def valid_time?(t) when is_binary(t), do: match?({:ok, _, _}, DateTime.from_iso8601(t))
   def valid_time?(_), do: false
 
   # Shared by new/1 (atom keys) and from_wire/1 (string keys) — Map.get matches
-  # whichever key type the caller's map uses.
+  # whichever key type the caller's map uses. The key travels back out in the
+  # error tuple, so a `{:missing, _}` reason is `{:missing, :id}` from new/1 and
+  # `{:missing, "id"}` from from_wire/1; a handler covering both entry points
+  # has to match both forms.
   defp required(map, key) do
     case Map.get(map, key) do
       v when is_binary(v) and v != "" -> {:ok, v}
