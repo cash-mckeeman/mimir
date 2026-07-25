@@ -73,6 +73,56 @@ defmodule Mimir.CloudEvent do
   end
 
   @doc """
+  Render to the CloudEvents JSON event format: a string-keyed map with the
+  context attributes and `data` as top-level keys. `time`/`subject` are omitted
+  when nil; the rest are always present. Always succeeds.
+  """
+  @spec to_wire(t()) :: map()
+  def to_wire(%__MODULE__{} = ce) do
+    %{
+      "specversion" => ce.specversion,
+      "id" => ce.id,
+      "source" => ce.source,
+      "type" => ce.type,
+      "datacontenttype" => ce.datacontenttype,
+      "data" => ce.data
+    }
+    |> put_present("time", ce.time)
+    |> put_present("subject", ce.subject)
+  end
+
+  @doc """
+  Parse a CloudEvents JSON event-format map. Fallible and tolerant: `specversion`,
+  `id`, `source`, `type` must be present non-empty strings (else
+  `{:error, {:bad_cloudevent, {:missing, key}}}`), and `specversion` must be
+  `"1.0"` (else `{:error, {:bad_cloudevent, {:unsupported_specversion, v}}}`).
+  `time`/`subject` are tolerant (absent or non-string → nil), `data` is opaque
+  (non-map → `%{}`), unknown top-level keys are ignored. Never raises.
+  """
+  @spec from_wire(map()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
+  def from_wire(wire) when is_map(wire) do
+    with {:ok, sv} <- required(wire, "specversion"),
+         :ok <- check_specversion(sv),
+         {:ok, id} <- required(wire, "id"),
+         {:ok, source} <- required(wire, "source"),
+         {:ok, type} <- required(wire, "type") do
+      {:ok,
+       %__MODULE__{
+         specversion: sv,
+         id: id,
+         source: source,
+         type: type,
+         time: tolerant_string(wire["time"]),
+         subject: tolerant_string(wire["subject"]),
+         datacontenttype: string_or_default(wire["datacontenttype"], @datacontenttype),
+         data: as_map(wire["data"])
+       }}
+    end
+  end
+
+  def from_wire(other), do: {:error, {:bad_cloudevent, {:invalid_wire, other}}}
+
+  @doc """
   RFC3339 shape check: a non-empty string `DateTime.from_iso8601/1` accepts
   (RFC3339 is the ISO-8601 profile it parses, and it requires a UTC offset).
   """
@@ -99,4 +149,19 @@ defmodule Mimir.CloudEvent do
   defp validate_optional_string(nil, _key), do: :ok
   defp validate_optional_string(v, _key) when is_binary(v) and v != "", do: :ok
   defp validate_optional_string(_v, key), do: {:error, {:bad_cloudevent, {:blank, key}}}
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp check_specversion(@specversion), do: :ok
+  defp check_specversion(v), do: {:error, {:bad_cloudevent, {:unsupported_specversion, v}}}
+
+  defp tolerant_string(s) when is_binary(s) and s != "", do: s
+  defp tolerant_string(_), do: nil
+
+  defp string_or_default(s, _default) when is_binary(s) and s != "", do: s
+  defp string_or_default(_, default), do: default
+
+  defp as_map(m) when is_map(m), do: m
+  defp as_map(_), do: %{}
 end

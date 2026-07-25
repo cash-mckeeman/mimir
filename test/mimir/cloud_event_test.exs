@@ -65,4 +65,73 @@ defmodule Mimir.CloudEventTest do
     refute CloudEvent.valid_time?("not a time")
     refute CloudEvent.valid_time?(nil)
   end
+
+  describe "wire" do
+    setup do
+      {:ok, ce} =
+        CloudEvent.new(%{
+          id: "req_1:2",
+          source: "//mimir.bizinsights.ai/gateway/prod-1",
+          type: "ai.bizinsights.mimir.llm.tool_call",
+          time: "2026-07-25T14:01:10Z",
+          subject: "req_1",
+          data: %{"k" => "v"}
+        })
+
+      %{ce: ce}
+    end
+
+    test "to_wire/1 emits top-level CloudEvents keys", %{ce: ce} do
+      w = CloudEvent.to_wire(ce)
+
+      assert w["specversion"] == "1.0"
+      assert w["id"] == "req_1:2"
+      assert w["source"] == "//mimir.bizinsights.ai/gateway/prod-1"
+      assert w["type"] == "ai.bizinsights.mimir.llm.tool_call"
+      assert w["datacontenttype"] == "application/json"
+      assert w["time"] == "2026-07-25T14:01:10Z"
+      assert w["subject"] == "req_1"
+      assert w["data"] == %{"k" => "v"}
+    end
+
+    test "to_wire/1 omits nil time and subject" do
+      {:ok, ce} = CloudEvent.new(%{id: "i", source: "s", type: "t"})
+      w = CloudEvent.to_wire(ce)
+      refute Map.has_key?(w, "time")
+      refute Map.has_key?(w, "subject")
+      assert w["data"] == %{}
+    end
+
+    test "from_wire/1 round-trips to_wire/1", %{ce: ce} do
+      assert {:ok, ce} == CloudEvent.from_wire(CloudEvent.to_wire(ce))
+    end
+
+    test "from_wire/1 is tolerant: bad time -> nil, non-map data -> %{}, unknown keys ignored" do
+      {:ok, ce} =
+        CloudEvent.from_wire(%{
+          "specversion" => "1.0",
+          "id" => "i",
+          "source" => "s",
+          "type" => "t",
+          "time" => 123,
+          "data" => "not-a-map",
+          "extra" => "ignored"
+        })
+
+      assert ce.time == nil
+      assert ce.data == %{}
+    end
+
+    test "from_wire/1 rejects missing required attrs and a bad specversion" do
+      base = %{"specversion" => "1.0", "id" => "i", "source" => "s", "type" => "t"}
+
+      assert {:error, {:bad_cloudevent, {:missing, "id"}}} =
+               CloudEvent.from_wire(Map.delete(base, "id"))
+
+      assert {:error, {:bad_cloudevent, {:unsupported_specversion, "0.3"}}} =
+               CloudEvent.from_wire(Map.put(base, "specversion", "0.3"))
+
+      assert {:error, {:bad_cloudevent, {:invalid_wire, "x"}}} = CloudEvent.from_wire("x")
+    end
+  end
 end
