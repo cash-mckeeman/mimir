@@ -100,6 +100,7 @@ defmodule Mimir.CloudEventTest do
       refute Map.has_key?(w, "time")
       refute Map.has_key?(w, "subject")
       assert w["data"] == %{}
+      assert {:ok, ce} == CloudEvent.from_wire(CloudEvent.to_wire(ce))
     end
 
     test "from_wire/1 round-trips to_wire/1", %{ce: ce} do
