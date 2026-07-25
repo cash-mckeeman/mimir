@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.0 (2026-07-25)
+
+Adds `Mimir.CloudEvent`, a CloudEvents v1.0 envelope, as the ecosystem's uniform
+event wrapper. It carries any domain body — a `Mimir.Event` wire map, a routing
+decision record, a metering record — in `data`, with the CloudEvents context
+attributes as siblings. **`Mimir.Event` is unchanged**: it has no
+`id`/`source`/`specversion` and its `ts` is monotonic rather than wall-clock, so
+CloudEvents is an envelope concern here, a second export edge alongside
+`Mimir.Event.OTel` — not a rewrite of the vocabulary root.
+
+- `Mimir.CloudEvent` — struct plus strict `new/1`, `from_event/2` (wraps a
+  `Mimir.Event`, taking `type` from the taxonomy and `data` from
+  `Event.to_wire/1`), `to_wire/1`, tolerant `from_wire/1`, and `valid_time?/1`.
+  `@enforce_keys [:id, :source, :type]`. The `id`/`source`/`time` a CloudEvent
+  needs are supplied by the **producer** that wraps a body; this module
+  validates their shape and invents none of them.
+- `Mimir.CloudEvent.Types` — the `ai.bizinsights.mimir.*` `type` taxonomy.
+  `for_event/1` derives `ai.bizinsights.mimir.<domain>.<type>` from a
+  `Mimir.Event`; one helper per record family. Open, not a closed union: a
+  broker or consumer must never reject an unknown or newer `type`.
+  `memory/1` is explicitly **provisional** — no producer implements that
+  vocabulary yet.
+- `data` is **any JSON value**, carried verbatim and never interpreted here;
+  consumers decode per `type`. A binary body travels base64-encoded in
+  `data_base64` instead, and the two are mutually exclusive — `new/1` rejects
+  being handed both.
+- `dataschema` and **extension attributes** are modeled. `from_wire/1` preserves
+  every unrecognized top-level string key as an extension and `to_wire/1` merges
+  them back at the top level, so distributed-tracing context
+  (`traceparent`/`tracestate`) and broker-specific attributes survive a
+  parse/render trip intact. An extension may not shadow a modeled attribute.
+- Construction is strict, the wire is tolerant — the same posture as
+  `Mimir.Event`. `new/1` requires non-empty `id`/`source`/`type`, validates
+  `time`, honors a supplied `datacontenttype`, and rejects a `specversion` it
+  cannot write. `from_wire/1` requires those four attributes and
+  `specversion == "1.0"`, degrades malformed *optional hints* (`time`,
+  `subject`, `dataschema`) to `nil`, never drops a body, and never raises.
+- `valid_time?/1` documents where `DateTime.from_iso8601/1` diverges from
+  RFC3339 (`-00:00`, lowercase `t`/`z`, leap seconds are rejected; a space
+  separator is accepted) rather than claiming exactness — `new/1` hard-rejects
+  on it.
+- No new runtime dependency; the `~> 1.15` Elixir floor is unchanged.
+
 ## 0.4.1 (2026-07-17)
 
 Additive provenance field: `Mimir.Event` gains `path`, a materialized call
