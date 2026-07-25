@@ -58,6 +58,26 @@ defmodule Mimir.CloudEventTest do
     assert {:ok, %{subject: "req_1"}} = CloudEvent.new(Map.put(base, :subject, "req_1"))
   end
 
+  test "new/1 honors a supplied datacontenttype instead of silently replacing it" do
+    base = %{id: "i", source: "s", type: "t"}
+
+    {:ok, ce} = CloudEvent.new(Map.put(base, :datacontenttype, "application/xml"))
+    assert ce.datacontenttype == "application/xml"
+    assert CloudEvent.to_wire(ce)["datacontenttype"] == "application/xml"
+
+    {:ok, default} = CloudEvent.new(base)
+    assert default.datacontenttype == "application/json"
+  end
+
+  test "new/1 rejects a specversion it cannot write" do
+    base = %{id: "i", source: "s", type: "t"}
+
+    assert {:error, {:bad_cloudevent, {:unsupported_specversion, "0.3"}}} =
+             CloudEvent.new(Map.put(base, :specversion, "0.3"))
+
+    assert {:ok, %{specversion: "1.0"}} = CloudEvent.new(Map.put(base, :specversion, "1.0"))
+  end
+
   test "valid_time?/1 requires an RFC3339 string with offset" do
     assert CloudEvent.valid_time?("2026-07-25T14:01:10Z")
     assert CloudEvent.valid_time?("2026-07-25T14:01:10.5+02:00")

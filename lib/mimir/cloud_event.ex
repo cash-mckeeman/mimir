@@ -80,7 +80,12 @@ defmodule Mimir.CloudEvent do
   stored verbatim; supplying both `:data` and `:data_base64` is an error, since
   the JSON event format allows only one body. `:dataschema` (when present) must be
   a non-empty string, and `:extensions` a string-keyed map whose keys do not
-  shadow a CloudEvents attribute this struct already models. Returns
+  shadow a CloudEvents attribute this struct already models.
+
+  `:datacontenttype` defaults to `"application/json"` but is honored when given —
+  a producer labelling a non-JSON body gets the label it asked for. `:specversion`
+  may be supplied only as `"1.0"`; any other value is rejected rather than
+  silently replaced with the constant. Returns
   `{:ok, t()} | {:error, {:bad_cloudevent, reason}}`.
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, {:bad_cloudevent, term()}}
@@ -100,7 +105,8 @@ defmodule Mimir.CloudEvent do
          :ok <- validate_optional_string(data_base64, :data_base64),
          :ok <- validate_one_body(a),
          extensions = Map.get(a, :extensions, %{}),
-         :ok <- validate_extensions(extensions) do
+         :ok <- validate_extensions(extensions),
+         :ok <- check_specversion(Map.get(a, :specversion, @specversion)) do
       {:ok,
        %__MODULE__{
          id: id,
@@ -109,6 +115,7 @@ defmodule Mimir.CloudEvent do
          time: time,
          subject: subject,
          dataschema: dataschema,
+         datacontenttype: string_or_default(Map.get(a, :datacontenttype), @datacontenttype),
          data: Map.get(a, :data, %{}),
          data_base64: data_base64,
          extensions: extensions
