@@ -25,8 +25,11 @@ mimir-*.tar
 # Dialyzer PLTs are large and platform-specific, shouldn't be committed.
 /priv/plts/
 
-# hygiene: ops docs live in biai-ops
+# hygiene: ops docs live in the private control-plane repo
 docs/superpowers/
 docs/qa/
 docs/qa-runs/
 .superpowers/
+
+# jj workspaces: whole checkouts, never content
+.claude/worktrees/
