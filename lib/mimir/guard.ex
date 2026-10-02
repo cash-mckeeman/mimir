@@ -9,6 +9,11 @@ defmodule Mimir.Guard do
   enforcement, for runtimes where the gateway cannot sit in the data plane.
   `caps/1` is the mimir-less form: plain cost/token/turn caps, no minted key.
 
+  A cost cap (the grant budget, or `caps/1`'s `:max_cost_microdollars`) prices
+  cache tokens too — cache_read_input_tokens and cache_creation_input_tokens
+  go through `normalize_usage/1` to `Mimir.Pricing` the same as input/output,
+  because cost is cost. `:max_total_tokens` stays input + output only.
+
   Guards never raise mid-run: on a pricing-table miss the cost check degrades
   to whatever caps remain and a `[:mimir, :guard, :pricing_miss]` telemetry
   warning is emitted (once per process per model).
@@ -106,11 +111,26 @@ defmodule Mimir.Guard do
   defp normalize_usage(usage) when is_map(usage) do
     %{
       input_tokens: as_count(Map.get(usage, :input_tokens) || Map.get(usage, "input_tokens")),
-      output_tokens: as_count(Map.get(usage, :output_tokens) || Map.get(usage, "output_tokens"))
+      output_tokens: as_count(Map.get(usage, :output_tokens) || Map.get(usage, "output_tokens")),
+      cache_read_input_tokens:
+        as_count(
+          Map.get(usage, :cache_read_input_tokens) || Map.get(usage, "cache_read_input_tokens")
+        ),
+      cache_creation_input_tokens:
+        as_count(
+          Map.get(usage, :cache_creation_input_tokens) ||
+            Map.get(usage, "cache_creation_input_tokens")
+        )
     }
   end
 
-  defp normalize_usage(_usage), do: %{input_tokens: 0, output_tokens: 0}
+  defp normalize_usage(_usage),
+    do: %{
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0
+    }
 
   defp as_count(n) when is_integer(n), do: n
   defp as_count(_), do: 0

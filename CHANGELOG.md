@@ -33,6 +33,11 @@ longer hides the vendored DB's cache rates for the same model.
 - **Types.** New `Mimir.Pricing.rates`. `Mimir.Snapshot.rates` now refers to
   it, so it widens to admit the optional cache rates; the oracle still ranks
   on `input` and `output` only.
+- **`Mimir.Guard` cost caps price cache tokens.** `for_grant/3`'s grant
+  budget and `caps/1`'s `:max_cost_microdollars` now include
+  `cache_read_input_tokens`/`cache_creation_input_tokens` in the priced
+  cost, through the same `normalize_usage/1` map passed to `Mimir.Pricing`.
+  `:max_total_tokens` still counts `input_tokens` + `output_tokens` only.
 - No new runtime dependency; the `~> 1.15` Elixir floor is unchanged.
 
 ## 0.5.0 (2026-07-25)

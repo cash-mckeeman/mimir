@@ -1,12 +1,20 @@
 defmodule Mimir.GuardTest do
   use ExUnit.Case, async: false
 
-  # anthropic:claude-sonnet-4-6 in config pricing: input 3_000_000 µ$/Mtok, output 15_000_000 µ$/Mtok
+  # anthropic:claude-sonnet-4-6 in config pricing: input 3_000_000 µ$/Mtok, output
+  # 15_000_000 µ$/Mtok, cache_read 5_000_000 µ$/Mtok, cache_write 5_000_000 µ$/Mtok.
+  # Existing tests below don't pass cache token counts, so these rates don't change
+  # their priced cost (per_million(0, rate) == 0 regardless of rate).
   @model "anthropic:claude-sonnet-4-6"
 
   setup do
     Application.put_env(:mimir, :pricing, %{
-      @model => %{input: 3_000_000, output: 15_000_000}
+      @model => %{
+        input: 3_000_000,
+        output: 15_000_000,
+        cache_read: 5_000_000,
+        cache_write: 5_000_000
+      }
     })
 
     on_exit(fn -> Application.delete_env(:mimir, :pricing) end)
@@ -28,7 +36,13 @@ defmodule Mimir.GuardTest do
       assert {:halt, {:budget_exceeded, info}} = guard.(state(1_000, 1_000))
       assert info.cost_microdollars == 18_000
       assert info.budget_microdollars == 18_000
-      assert info.usage == %{input_tokens: 1_000, output_tokens: 1_000}
+
+      assert info.usage == %{
+               input_tokens: 1_000,
+               output_tokens: 1_000,
+               cache_read_input_tokens: 0,
+               cache_creation_input_tokens: 0
+             }
     end
 
     test "accepts string-keyed usage" do
@@ -81,6 +95,20 @@ defmodule Mimir.GuardTest do
 
       assert guard.(state(1, 1, 2)) == :cont
       assert {:halt, {:max_turns, %{turns: 3, max: 3}}} = guard.(state(1, 1, 3))
+    end
+
+    test "a cost cap is breached only once cache-read cost is included" do
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 1_000}, @model)
+
+      state = %{
+        usage: %{input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1_000},
+        turns: 1
+      }
+
+      # Without cache cost: priced cost is 0, well under the 1_000 budget.
+      # With it: 1_000 cache-read tokens * 5_000_000 µ$/M = 5_000 µ$, over budget.
+      assert {:halt, {:budget_exceeded, info}} = guard.(state)
+      assert info.cost_microdollars == 5_000
     end
 
     test "never raises on non-map or non-integer usage (degrades to :cont)" do
