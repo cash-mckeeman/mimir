@@ -48,12 +48,16 @@ defmodule Mimir.Pricing do
           optional(:cache_write) => non_neg_integer()
         }
 
-  @typedoc "Token counts, atom-keyed; a missing key counts as zero."
+  @typedoc """
+  Token counts, atom-keyed; a missing key counts as zero. The two cache keys
+  also tolerate an explicit `nil` (as zero), since a caller passing a decoded
+  wire map straight through may hand one over for an absent cache count.
+  """
   @type usage :: %{
           optional(:input_tokens) => non_neg_integer(),
           optional(:output_tokens) => non_neg_integer(),
-          optional(:cache_read_input_tokens) => non_neg_integer(),
-          optional(:cache_creation_input_tokens) => non_neg_integer()
+          optional(:cache_read_input_tokens) => non_neg_integer() | nil,
+          optional(:cache_creation_input_tokens) => non_neg_integer() | nil
         }
 
   @doc """
@@ -63,8 +67,8 @@ defmodule Mimir.Pricing do
   @spec cost_microdollars(String.t(), usage()) :: non_neg_integer()
   def cost_microdollars(model, usage) when is_binary(model) and is_map(usage) do
     rates = configured_price(model)
-    cache_read = Map.get(usage, :cache_read_input_tokens, 0)
-    cache_write = Map.get(usage, :cache_creation_input_tokens, 0)
+    cache_read = Map.get(usage, :cache_read_input_tokens, 0) || 0
+    cache_write = Map.get(usage, :cache_creation_input_tokens, 0) || 0
     report_missing_cache_rates(model, rates, cache_read, cache_write)
 
     per_million(Map.get(usage, :input_tokens, 0), rates.input) +

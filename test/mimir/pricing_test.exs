@@ -366,6 +366,21 @@ defmodule Mimir.PricingTest do
     end
   end
 
+  describe "nil cache counts" do
+    test "a nil cache_read_input_tokens counts as zero" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+      # sample-model-a: input_cost_per_token 0.000003 -> 3_000_000 µ$/M
+      usage = %{input_tokens: 1_000, output_tokens: 0, cache_read_input_tokens: nil}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
+    end
+
+    test "a nil cache_creation_input_tokens counts as zero" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+      usage = %{input_tokens: 1_000, output_tokens: 0, cache_creation_input_tokens: nil}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
+    end
+  end
+
   def forward_no_cache_rate(_event, measurements, metadata, test_pid),
     do: send(test_pid, {:no_cache_rate, measurements, metadata})
 end
