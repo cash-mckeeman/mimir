@@ -63,7 +63,11 @@ longer hides the vendored DB's cache rates for the same model.
   instead). `Mimir.Guard` rescues this and halts with
   `{:invalid_pricing, %{model:, usage:, message:}}` instead of raising
   mid-run; calling `Mimir.Pricing` directly still raises.
-- No new runtime dependency; the `~> 1.15` Elixir floor is unchanged.
+- No new runtime dependency.
+- **Elixir floor raised to 1.18.** `mix.exs` now requires `~> 1.18`. CI
+  tests Elixir 1.18/OTP 27 and Elixir 1.20/OTP 29; Elixir 1.15 and OTP 26
+  are no longer tested, and mimir may use syntax or stdlib features from
+  1.18 in a future release.
 
 ## 0.5.0 (2026-07-25)
 
