@@ -313,18 +313,56 @@ defmodule Mimir.PricingTest do
       usage = %{cache_read_input_tokens: 1_000_000}
       assert Pricing.cost_microdollars("provider:zero-cache", usage) == 0
     end
+  end
 
-    test "a negative config rate is rejected, not honored" do
+  describe "invalid config entries raise" do
+    test "a negative rate raises ArgumentError naming the model and value" do
       Application.put_env(:mimir, :pricing_db_path, @fixture_path)
 
       Application.put_env(:mimir, :pricing, %{
         "provider:negative-cache" => %{input: 2_000_000, output: 1_000_000, cache_read: -500_000}
       })
 
-      # A negative rate must not be accepted as the field's rate: it is
-      # filtered out here, so cache_read falls back to the input rate.
-      usage = %{cache_read_input_tokens: 1_000_000}
-      assert Pricing.cost_microdollars("provider:negative-cache", usage) == 2_000_000
+      error =
+        assert_raise ArgumentError, fn ->
+          Pricing.cost_microdollars("provider:negative-cache", %{cache_read_input_tokens: 1})
+        end
+
+      assert error.message =~ "provider:negative-cache"
+      assert error.message =~ "cache_read"
+      assert error.message =~ "-500000"
+    end
+
+    test "a non-integer rate raises ArgumentError naming the model and value" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:float-rate" => %{input: 2.5e6, output: 1_000_000}
+      })
+
+      error =
+        assert_raise ArgumentError, fn ->
+          Pricing.cost_microdollars("provider:float-rate", %{input_tokens: 1})
+        end
+
+      assert error.message =~ "provider:float-rate"
+      assert error.message =~ "input"
+    end
+
+    test "an unknown config key raises ArgumentError naming the model and key" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:bad-key" => %{input: 1_000_000, output: 1_000_000, bogus: 1}
+      })
+
+      error =
+        assert_raise ArgumentError, fn ->
+          Pricing.cost_microdollars("provider:bad-key", %{input_tokens: 1})
+        end
+
+      assert error.message =~ "provider:bad-key"
+      assert error.message =~ "bogus"
     end
   end
 

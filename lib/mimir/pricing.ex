@@ -19,6 +19,11 @@ defmodule Mimir.Pricing do
   zero in the vendored DB, which counts as missing (below) — the DB's zero marks an
   untracked cost LiteLLM hasn't filled in, not a negotiated zero-cost rate.
 
+  A misconfigured entry is loud: a key outside `input:`/`output:`/`cache_read:`/
+  `cache_write:`, or a rate that isn't a non-negative integer, raises `ArgumentError`
+  naming the model and the offending key/value, the first time that model's rate is
+  resolved.
+
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
   cache rates. With no cache rate from either source they price at the input rate, never
   as free, and `[:mimir, :pricing, :no_cache_rate]` fires, only when such tokens are
@@ -101,7 +106,7 @@ defmodule Mimir.Pricing do
   def resolve_rates(model, entry) when is_binary(model) do
     %{input: 0, output: 0}
     |> Map.merge(vendored_price(model) || %{})
-    |> Map.merge(configured_rates(entry))
+    |> Map.merge(configured_rates(model, entry))
   end
 
   # Per field: config entry, then vendored DB; cache rates may stay absent.
@@ -115,13 +120,30 @@ defmodule Mimir.Pricing do
     resolve_rates(model, entry)
   end
 
-  defp configured_rates(entry) when is_map(entry) do
-    Map.filter(entry, fn {field, rate} ->
-      field in @rate_fields and is_integer(rate) and rate >= 0
-    end)
+  # A misconfigured entry is loud, not silently dropped: an unknown key or an
+  # invalid rate value raises ArgumentError naming the model and the
+  # offending key/value, at the point of use.
+  defp configured_rates(model, entry) when is_map(entry) do
+    Map.new(entry, fn {field, rate} -> {field, validate_rate!(model, field, rate)} end)
   end
 
-  defp configured_rates(_entry), do: %{}
+  defp configured_rates(_model, _entry), do: %{}
+
+  defp validate_rate!(model, field, rate) do
+    unless field in @rate_fields do
+      raise ArgumentError,
+            "Mimir.Pricing: model #{inspect(model)} has an unknown pricing key " <>
+              "#{inspect(field)} (expected one of #{inspect(@rate_fields)})"
+    end
+
+    unless is_integer(rate) and rate >= 0 do
+      raise ArgumentError,
+            "Mimir.Pricing: model #{inspect(model)} has an invalid #{field} rate: " <>
+              "#{inspect(rate)} (expected a non-negative integer)"
+    end
+
+    rate
+  end
 
   # Vendored DB lookup: try bare model_id, then "provider/model_id".
   defp vendored_price(model) do
