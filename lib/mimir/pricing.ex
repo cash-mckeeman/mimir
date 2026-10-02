@@ -25,10 +25,12 @@ defmodule Mimir.Pricing do
   resolved.
 
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
-  cache rates. With no cache rate from either source they price at the input rate, never
-  as free, and `[:mimir, :pricing, :no_cache_rate]` fires, only when such tokens are
-  present. Its measurements are the token counts priced that way; its metadata is
-  `%{model: model}`. A zero cache cost in the vendored DB counts as no rate.
+  cache rates. With no cache rate from either source they price at the input rate rather
+  than at zero by default — an unpriced model's input rate is itself 0, though, so its
+  cache tokens still cost 0, same as before — and `[:mimir, :pricing, :no_cache_rate]`
+  fires, only when such tokens are present. Its measurements are the token counts priced
+  that way; its metadata is `%{model: model}`. A zero cache cost in the vendored DB counts
+  as no rate.
 
   The vendored DB is converted from LiteLLM's USD/token floats at load time:
   `round(cost * 1.0e12)` → integer µ$/M tokens, so the hot path is integer math only.

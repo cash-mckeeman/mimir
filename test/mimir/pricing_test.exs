@@ -366,6 +366,15 @@ defmodule Mimir.PricingTest do
     end
   end
 
+  describe "unpriced model" do
+    test "an unpriced model's cache tokens cost zero too, not the input-rate fallback" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("totally:unpriced-model", usage) == 0
+    end
+  end
+
   describe "nil cache counts" do
     test "a nil cache_read_input_tokens counts as zero" do
       Application.put_env(:mimir, :pricing_db_path, @fixture_path)

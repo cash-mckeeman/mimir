@@ -23,10 +23,12 @@ longer hides the vendored DB's cache rates for the same model.
   was ignored entirely. Now a config entry that overrides input and output (a
   negotiated rate, say) inherits the DB's list cache rates unless it sets its
   own, and a partial entry's rates are used for the fields it sets.
-- **Never free.** With no cache rate from either source, cache tokens price at
-  the model's input rate and `[:mimir, :pricing, :no_cache_rate]` fires, with
-  the token counts priced that way as measurements and `%{model: model}` as
-  metadata. It fires only when such tokens are present. A zero cache cost in
+- **Never free by default.** With no cache rate from either source, cache
+  tokens price at the model's input rate rather than at zero, and
+  `[:mimir, :pricing, :no_cache_rate]` fires, with the token counts priced
+  that way as measurements and `%{model: model}` as metadata. (An unpriced
+  model's input rate is already 0, so its cache tokens cost 0 too, as
+  before.) It fires only when such tokens are present. A zero cache cost in
   the vendored DB counts as no rate.
 - **Types.** New `Mimir.Pricing.rates`. `Mimir.Snapshot.rates` now refers to
   it, so it widens to admit the optional cache rates; the oracle still ranks
