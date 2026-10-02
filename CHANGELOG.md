@@ -6,7 +6,10 @@ Refreshes the vendored LiteLLM pricing DB (`mix mimir.pricing.refresh`,
 fetched 2026-10-02). It now prices `claude-opus-5-5`, `claude-sonnet-5-5`
 and `claude-fable-5-1`, all absent from 0.6.0's vendored copy — a caller
 pricing any of those three got `0` from `Mimir.Pricing.cost_microdollars/2`
-before this release. No rate changed for any previously-priced model
+before this release. Records removed upstream retain their last known vendored
+rates so previously supported model IDs continue to price historical usage.
+These retained rates are compatibility data, not a claim of current provider
+availability or prices. No rate changed for any previously-priced model
 checked against the refresh (`claude-sonnet-4-6`, `gpt-4o`,
 `claude-haiku-4-5`); upstream only added metadata fields around them.
 

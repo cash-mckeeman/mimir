@@ -422,6 +422,31 @@ defmodule Mimir.PricingTest do
     end
   end
 
+  describe "vendored DB: retained pricing" do
+    test "previously priced records removed upstream retain their last known rates" do
+      assert_vendored_rates("pricing_retained_models.json")
+    end
+  end
+
+  defp assert_vendored_rates(fixture) do
+    entries =
+      Path.join([__DIR__, "..", "support", "fixtures", fixture])
+      |> File.read!()
+      |> Jason.decode!()
+
+    token_fields = %{
+      "input" => :input_tokens,
+      "output" => :output_tokens,
+      "cache_read" => :cache_read_input_tokens,
+      "cache_write" => :cache_creation_input_tokens
+    }
+
+    for {id, rates} <- entries, {field, expected} <- rates do
+      actual = Pricing.cost_microdollars("vendored:" <> id, %{token_fields[field] => 1_000_000})
+      assert actual == expected, "#{id} #{field}: expected #{expected}, got #{actual}"
+    end
+  end
+
   def forward_no_cache_rate(_event, measurements, metadata, test_pid),
     do: send(test_pid, {:no_cache_rate, measurements, metadata})
 end
