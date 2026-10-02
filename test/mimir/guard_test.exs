@@ -111,6 +111,34 @@ defmodule Mimir.GuardTest do
       assert info.cost_microdollars == 5_000
     end
 
+    test "a cost cap is breached only once cache-write (creation) cost is included" do
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 1_000}, @model)
+
+      state = %{
+        usage: %{input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 1_000},
+        turns: 1
+      }
+
+      # Same shape as the cache-read test above, but for
+      # cache_creation_input_tokens: normalize_usage/1 must not hard-zero it.
+      assert {:halt, {:budget_exceeded, info}} = guard.(state)
+      assert info.cost_microdollars == 5_000
+    end
+
+    test "a cost cap is breached on string-keyed cache token counts too" do
+      guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 1_000}, @model)
+
+      state = %{
+        usage: %{"input_tokens" => 0, "output_tokens" => 0, "cache_read_input_tokens" => 1_000},
+        turns: 1
+      }
+
+      # Same shape again, string-keyed throughout: normalize_usage/1 must
+      # read a string-keyed cache count the same way it reads the atom one.
+      assert {:halt, {:budget_exceeded, info}} = guard.(state)
+      assert info.cost_microdollars == 5_000
+    end
+
     test "never raises on non-map or non-integer usage (degrades to :cont)" do
       guard = Mimir.Guard.for_grant(%Mimir.Grant{key: "vk", budget_microdollars: 18_000}, @model)
 

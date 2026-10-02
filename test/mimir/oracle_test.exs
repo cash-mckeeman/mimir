@@ -192,7 +192,7 @@ defmodule Mimir.OracleTest do
   end
 
   describe "partial pricing entries (no crash)" do
-    test "an :input-only entry resolves :output from the DB when expected_tokens is set" do
+    test "an :input-only entry does not crash cost filtering when expected_tokens is set" do
       entries = [entry("son", "anthropic:partial-in")]
       d = descriptor(%{budget_ceiling_microdollars: 10_000_000})
       snap = snapshot(pricing: %{"anthropic:partial-in" => %{input: 2_000_000}})
