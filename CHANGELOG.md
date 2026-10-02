@@ -47,8 +47,22 @@ longer hides the vendored DB's cache rates for the same model.
 - **`Mimir.Guard` cost caps price cache tokens.** `for_grant/3`'s grant
   budget and `caps/1`'s `:max_cost_microdollars` now include
   `cache_read_input_tokens`/`cache_creation_input_tokens` in the priced
-  cost, through the same `normalize_usage/1` map passed to `Mimir.Pricing`.
+  cost, through the same usage map Guard prices through `Mimir.Pricing`.
   `:max_total_tokens` still counts `input_tokens` + `output_tokens` only.
+  A `{:halt, {:budget_exceeded, %{usage: …}}}` now carries all 4 keys,
+  not 2 — a caller matching the old 2-key shape needs to widen it.
+- **A misconfigured `:mimir, :pricing` entry now raises, loudly, where
+  0.5.0 accepted it silently.** `Mimir.Pricing.cost_microdollars/2` (and
+  anything that resolves rates through it, including the oracle) raises
+  `ArgumentError` for: a rate that isn't a non-negative integer (0.5.0
+  already raised on a float, in `div/2`, so this narrows rather than
+  widens that case); a negative rate (0.5.0 used it directly, pricing
+  silently negative); and a key outside `input:`/`output:`/`cache_read:`/
+  `cache_write:` (0.5.0's `%{input:, output:}` match ignored any extra
+  key in the map — a stray `currency:` field, say — and now raises
+  instead). `Mimir.Guard` rescues this and halts with
+  `{:invalid_pricing, %{model:, usage:, message:}}` instead of raising
+  mid-run; calling `Mimir.Pricing` directly still raises.
 - No new runtime dependency; the `~> 1.15` Elixir floor is unchanged.
 
 ## 0.5.0 (2026-07-25)

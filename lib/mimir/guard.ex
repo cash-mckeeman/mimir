@@ -11,8 +11,9 @@ defmodule Mimir.Guard do
 
   A cost cap (the grant budget, or `caps/1`'s `:max_cost_microdollars`) prices
   cache tokens too — cache_read_input_tokens and cache_creation_input_tokens
-  go through `normalize_usage/1` to `Mimir.Pricing` the same as input/output,
-  because cost is cost. `:max_total_tokens` stays input + output only.
+  are part of the usage map Guard prices through `Mimir.Pricing`, the same
+  as input/output, because cost is cost. `:max_total_tokens` stays input +
+  output only.
 
   Guards never raise mid-run: on a pricing-table miss the cost check degrades
   to whatever caps remain and a `[:mimir, :guard, :pricing_miss]` telemetry

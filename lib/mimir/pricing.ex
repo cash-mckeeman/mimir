@@ -21,8 +21,9 @@ defmodule Mimir.Pricing do
 
   A misconfigured entry is loud: a key outside `input:`/`output:`/`cache_read:`/
   `cache_write:`, or a rate that isn't a non-negative integer, raises `ArgumentError`
-  naming the model and the offending key/value, the first time that model's rate is
-  resolved.
+  naming the model and the offending key/value, whenever that model's rate is
+  resolved — nothing is memoized, so every call re-validates. `Mimir.Guard` rescues
+  this and halts instead of raising mid-run; calling this module directly does not.
 
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
   cache rates. With no cache rate from either source they price at the input rate rather
