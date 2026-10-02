@@ -9,13 +9,13 @@ defmodule Mimir.Oracle do
   ascending p50 latency, then ascending priority. When eval scorecards exist,
   `quality_bar` becomes a fourth FILTER (below-bar excluded), not a weight.
 
-  Rates resolve through `Mimir.Pricing.resolve_rates/2`, field by field: a
-  `snapshot.pricing` entry may be partial, with any rate it doesn't set —
-  or a whole missing entry — falling back to the vendored LiteLLM DB, then
-  to zero for `input`/`output`. Only a model absent from both the pricing
-  map and the DB ranks free, always passing the cost filter and ranking as
-  the cheapest candidate; keep the pricing map (or the DB) complete for
-  every entry you want cost-ranked honestly.
+  Rates resolve field by field, the same way `Mimir.Pricing` resolves its own
+  config table: a `snapshot.pricing` entry may be partial, with any rate it
+  doesn't set — or a whole missing entry — falling back to the vendored
+  LiteLLM DB, then to zero for `input`/`output`. Only a model absent from
+  both the pricing map and the DB ranks free, always passing the cost filter
+  and ranking as the cheapest candidate; keep the pricing map (or the DB)
+  complete for every entry you want cost-ranked honestly.
   """
   alias Mimir.{Candidate, Catalog.Entry, Descriptor, Pricing, Snapshot}
 

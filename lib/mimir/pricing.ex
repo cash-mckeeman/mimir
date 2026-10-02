@@ -97,18 +97,22 @@ defmodule Mimir.Pricing do
     :ok
   end
 
-  @doc """
-  Resolves `model`'s full rate map from an explicit config `entry`, which
-  may be partial (or `%{}`, or absent a key entirely). Every field —
-  `input`, `output`, `cache_read`, `cache_write` — resolves on its own: the
-  entry's rate when it sets one, else the vendored DB's, else zero for
-  `input`/`output` (cache rates may stay absent). This is the same
-  per-field rule `cost_microdollars/2` applies to the `:mimir, :pricing`
-  table; `Mimir.Snapshot`/`Mimir.Oracle` call it directly so a snapshot's
-  own pricing table — which may hold the same kind of partial entry —
-  resolves identically instead of being read as a bare `%{input:, output:}`
-  pair.
-  """
+  # Resolves `model`'s full rate map from an explicit config `entry`, which
+  # may be partial (or `%{}`, or absent a key entirely). Every field —
+  # `input`, `output`, `cache_read`, `cache_write` — resolves on its own:
+  # the entry's rate when it sets one, else the vendored DB's, else zero
+  # for `input`/`output` (cache rates may stay absent; an invalid entry
+  # raises, same as `cost_microdollars/2`). This is the same per-field
+  # rule `cost_microdollars/2` applies to the `:mimir, :pricing` table;
+  # `Mimir.Oracle` calls it directly so a snapshot's own pricing table —
+  # which may hold the same kind of partial entry — resolves identically
+  # instead of being read as a bare `%{input:, output:}` pair.
+  #
+  # Public (so Mimir.Oracle, in a different module, can call it) but not
+  # supported API: the merge order, the DB fallback, and the raise are
+  # this module's own implementation choices, free to change without a
+  # major version bump.
+  @doc false
   @spec resolve_rates(String.t(), map()) :: rates()
   def resolve_rates(model, entry) when is_binary(model) do
     %{input: 0, output: 0}
