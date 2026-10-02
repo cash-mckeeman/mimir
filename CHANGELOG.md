@@ -1,5 +1,97 @@
 # Changelog
 
+## 0.6.0 (2026-10-02)
+
+Cache-aware pricing. `Mimir.Pricing.cost_microdollars/2` prices cache read and
+cache write tokens, and resolves each rate on its own, so a config entry no
+longer hides the vendored DB's cache rates for the same model.
+
+- **`usage` widens, additively.** `Mimir.Pricing.usage` gains optional
+  `:cache_read_input_tokens` and `:cache_creation_input_tokens` (Anthropic's
+  names, atom-keyed). A two-key `%{input_tokens:, output_tokens:}` map prices
+  exactly as before. A caller holding a usage struct passes
+  `Map.from_struct(usage)`. The two cache keys also tolerate an explicit
+  `nil` value (priced as absent) — useful for a caller passing a decoded
+  wire map straight through, where Anthropic's own cache counts can be
+  `null`; `input_tokens`/`output_tokens` don't get the same tolerance.
+- **Cache rates.** A config-table entry takes optional `cache_read:` and
+  `cache_write:` (µ$ per million tokens). The vendored LiteLLM DB's
+  `cache_read_input_token_cost` and `cache_creation_input_token_cost` are now
+  read. Cache writes price at the single `cache_write` rate; LiteLLM's separate
+  1-hour cache-write cost is not read.
+- **Per-field resolution.** Each of `input`, `output`, `cache_read` and
+  `cache_write` comes from the config entry when it sets that rate, else from
+  the vendored DB. Before, a config entry won whole: an entry with only
+  `input:`/`output:` hid the DB's cache rates, and an entry missing `output:`
+  was ignored entirely. Now a config entry that overrides input and output (a
+  negotiated rate, say) inherits the DB's list cache rates unless it sets its
+  own, and a partial entry's rates are used for the fields it sets.
+- **The oracle resolves a partial pricing entry too, instead of
+  crashing.** 0.5.0's oracle raised `MatchError` the moment a
+  `Mimir.Snapshot`'s own `:pricing` table held an entry missing `input:`
+  or `output:`, as soon as ranking needed a cost projection. A snapshot's
+  pricing entry can be partial the same way a config entry can; the
+  oracle now resolves it the same way too, instead of requiring every
+  entry to be complete.
+- **Never free by default.** With no cache rate from either source, cache
+  tokens price at the model's input rate rather than at zero, and
+  `[:mimir, :pricing, :no_cache_rate]` fires, with the token counts priced
+  that way as measurements and `%{model: model}` as metadata. (An unpriced
+  model's input rate is already 0, so its cache tokens cost 0 too, as
+  before.) It fires only when such tokens are present. A zero cache cost in
+  the vendored DB counts as no rate.
+- **Types.** New `Mimir.Pricing.rates`. `Mimir.Snapshot.rates` now refers to
+  it, so it widens to admit the optional cache rates; the oracle still ranks
+  on `input` and `output` only.
+- **The oracle resolves a snapshot's missing pricing entries from the
+  vendored DB too, not only zero.** A model absent from a snapshot's
+  `:pricing` table previously ranked as free — `0` input/output, always
+  cheapest. It now resolves the same way `Mimir.Pricing` does: the vendored
+  DB's list rate when there is one, zero only when there is neither a
+  config entry nor a DB entry. **This can change which candidate a snapshot
+  with an incomplete pricing table ranks cheapest** — a DB-priced model
+  that was accidentally priced free no longer beats a genuinely cheaper
+  one. **It can also change whether a routing call decides at all.** A
+  candidate missing from the pricing table used to pass any budget
+  ceiling for free; now its projected cost is priced for real, so a call
+  that returned a decision before can come back `{:no_candidate, [:cost],
+  …}` instead, if that candidate's real cost is over the ceiling (or the
+  caller's remaining budget) and no other candidate is viable. Keep a
+  snapshot's `:pricing` table complete, or rely on the DB fallback
+  deliberately, for every candidate you want cost-ranked — and
+  cost-filtered — honestly.
+- **`Mimir.Guard` cost caps price cache tokens.** `for_grant/3`'s grant
+  budget and `caps/1`'s `:max_cost_microdollars` now include
+  `cache_read_input_tokens`/`cache_creation_input_tokens` in the priced
+  cost, through the same usage map Guard prices through `Mimir.Pricing`.
+  `:max_total_tokens` still counts `input_tokens` + `output_tokens` only.
+  A `{:halt, {:budget_exceeded, %{usage: …}}}` now carries all 4 keys,
+  not 2 — a caller matching the old 2-key shape needs to widen it.
+- **A misconfigured pricing entry now raises, loudly, where 0.5.0 accepted
+  it silently.** This covers both the `:mimir, :pricing` config table
+  (through `Mimir.Pricing.cost_microdollars/2`) and a `Mimir.Snapshot`'s
+  own `:pricing` table (`Mimir.Oracle` validates that table the same way,
+  not by calling `cost_microdollars/2`). Either path raises
+  `Mimir.Pricing.InvalidConfigError`, a dedicated exception (not a bare
+  `ArgumentError`, so a caller can rescue this failure specifically
+  without swallowing an unrelated one), for: a rate that isn't a
+  non-negative integer (0.5.0's `Mimir.Pricing` already raised on a float,
+  in `div/2`; so did the oracle, but only when a cost projection was
+  computed — without one, 0.5.0's oracle compared the float as-is and
+  still decided, so this is new on that path); a negative rate (0.5.0
+  used it directly, pricing silently negative); and a key outside
+  `input:`/`output:`/`cache_read:`/
+  `cache_write:` (0.5.0's `%{input:, output:}` match ignored any extra
+  key in the map — a stray `currency:` field, say — and now raises
+  instead). `Mimir.Guard` rescues this specific exception and halts with
+  `{:invalid_pricing, %{model:, usage:, message:}}` instead of raising
+  mid-run; calling `Mimir.Pricing` directly still raises.
+- No new runtime dependency.
+- **Elixir floor raised to 1.18.** `mix.exs` now requires `~> 1.18`. CI
+  tests Elixir 1.18/OTP 27 and Elixir 1.20/OTP 29; Elixir 1.15 and OTP 26
+  are no longer tested, and mimir may use syntax or stdlib features from
+  1.18 in a future release.
+
 ## 0.5.0 (2026-07-25)
 
 Adds `Mimir.CloudEvent`, a CloudEvents v1.0 envelope, as the ecosystem's uniform

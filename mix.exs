@@ -1,14 +1,14 @@
 defmodule Mimir.MixProject do
   use Mix.Project
 
-  @version "0.5.0"
+  @version "0.6.0"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do
     [
       app: :mimir,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),

@@ -9,11 +9,15 @@ defmodule Mimir.Oracle do
   ascending p50 latency, then ascending priority. When eval scorecards exist,
   `quality_bar` becomes a fourth FILTER (below-bar excluded), not a weight.
 
-  A model absent from `snapshot.pricing` defaults to zero input/output rates —
-  it always passes the cost filter and ranks as the cheapest candidate, so
-  keep the pricing map complete for every entry you want cost-ranked honestly.
+  Rates resolve field by field, the same way `Mimir.Pricing` resolves its own
+  config table: a `snapshot.pricing` entry may be partial, with any rate it
+  doesn't set — or a whole missing entry — falling back to the vendored
+  LiteLLM DB, then to zero for `input`/`output`. Only a model absent from
+  both the pricing map and the DB ranks free, always passing the cost filter
+  and ranking as the cheapest candidate; keep the pricing map (or the DB)
+  complete for every entry you want cost-ranked honestly.
   """
-  alias Mimir.{Candidate, Catalog.Entry, Descriptor, Snapshot}
+  alias Mimir.{Candidate, Catalog.Entry, Descriptor, Pricing, Snapshot}
 
   defmodule Policy do
     @moduledoc "Routing constraints layered on top of the catalog itself."
@@ -120,7 +124,7 @@ defmodule Mimir.Oracle do
   defp min_cap(ceiling, remaining), do: min(ceiling, remaining)
 
   defp projected_cost(e, %Descriptor{expected_tokens: %{in: i, out: o}}, snap) do
-    %{input: in_rate, output: out_rate} = Map.get(snap.pricing, e.model, %{input: 0, output: 0})
+    %{input: in_rate, output: out_rate} = resolved_rates(e.model, snap)
     div(i * in_rate, 1_000_000) + div(o * out_rate, 1_000_000)
   end
 
@@ -128,12 +132,21 @@ defmodule Mimir.Oracle do
 
   defp rank_key(e, %Descriptor{expected_tokens: nil}, snap) do
     # No projection: rank on per-token input price as the cost proxy.
-    %{input: in_rate} = Map.get(snap.pricing, e.model, %{input: 0, output: 0})
+    %{input: in_rate} = resolved_rates(e.model, snap)
     {in_rate, e.p50_latency_ms || 999_999_999, e.priority}
   end
 
   defp rank_key(e, d, snap),
     do: {projected_cost(e, d, snap), e.p50_latency_ms || 999_999_999, e.priority}
+
+  # A `snapshot.pricing` entry may be partial, or the model may be absent
+  # from it entirely (`%{}`) — resolved the same way `Mimir.Pricing` resolves
+  # its own config table, so a partial entry never crashes the destructure
+  # below and ranks on the vendored DB's rate for the field it leaves out.
+  defp resolved_rates(model, snap) do
+    entry = Map.get(snap.pricing, model, %{})
+    Pricing.resolve_rates(model, entry)
+  end
 
   defp placement_reasons(_chosen, %Descriptor{expected_tokens: nil}),
     do: ["capability_match", "cheapest_by_rate"]

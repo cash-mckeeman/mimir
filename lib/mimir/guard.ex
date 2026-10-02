@@ -9,9 +9,22 @@ defmodule Mimir.Guard do
   enforcement, for runtimes where the gateway cannot sit in the data plane.
   `caps/1` is the mimir-less form: plain cost/token/turn caps, no minted key.
 
-  Guards never raise mid-run: on a pricing-table miss the cost check degrades
-  to whatever caps remain and a `[:mimir, :guard, :pricing_miss]` telemetry
-  warning is emitted (once per process per model).
+  A cost cap (the grant budget, or `caps/1`'s `:max_cost_microdollars`) prices
+  cache tokens too — cache_read_input_tokens and cache_creation_input_tokens
+  are part of the usage map Guard prices through `Mimir.Pricing`, the same
+  as input/output, because cost is cost. `:max_total_tokens` stays input +
+  output only.
+
+  Guards never raise mid-run, but the two cost-check failures aren't the
+  same outcome: a pricing-table miss (no rate anywhere for the model)
+  degrades to `:cont`, leaving whatever caps remain to decide, and emits a
+  `[:mimir, :guard, :pricing_miss]` telemetry warning once per process per
+  model. A misconfigured pricing entry — `Mimir.Pricing` raising
+  `Mimir.Pricing.InvalidConfigError` for an invalid rate or an unknown key
+  — halts instead, with `{:invalid_pricing, %{model:, usage:, message:}}`,
+  rather than letting the raise propagate: a bad config entry is a real
+  problem the caller should stop and look at, not one the guard can
+  shrug off the way it does a merely-unpriced model.
   """
 
   @type turn_state :: %{
@@ -80,20 +93,41 @@ defmodule Mimir.Guard do
 
   defp check_budget(state, model, budget) do
     usage = normalize_usage(state.usage)
-    cost = Mimir.Pricing.cost_microdollars(model, usage)
 
-    cond do
-      cost == 0 and usage.input_tokens + usage.output_tokens > 0 ->
-        maybe_warn_pricing_miss(model, usage)
-        :cont
+    case price(model, usage) do
+      {:ok, cost} ->
+        cond do
+          cost == 0 and usage.input_tokens + usage.output_tokens > 0 ->
+            maybe_warn_pricing_miss(model, usage)
+            :cont
 
-      cost >= budget ->
-        {:halt,
-         {:budget_exceeded, %{cost_microdollars: cost, budget_microdollars: budget, usage: usage}}}
+          cost >= budget ->
+            {:halt,
+             {:budget_exceeded,
+              %{cost_microdollars: cost, budget_microdollars: budget, usage: usage}}}
 
-      true ->
-        :cont
+          true ->
+            :cont
+        end
+
+      {:error, message} ->
+        {:halt, {:invalid_pricing, %{model: model, usage: usage, message: message}}}
     end
+  end
+
+  # Mimir.Pricing raises Mimir.Pricing.InvalidConfigError for a misconfigured
+  # entry (an invalid rate, an unknown key) — loud by design, since a
+  # silently-wrong price is worse than a crash almost everywhere else. A
+  # guard runs mid-session, though, so a raise here would violate "never
+  # raise mid-run"; this turns it into a result the guard can halt on
+  # instead. Rescuing this exception specifically, not ArgumentError, means
+  # an unrelated ArgumentError from the same call — a packaging bug, a BIF
+  # badarg, anything that is not a pricing-config problem — still raises
+  # instead of being misreported as :invalid_pricing.
+  defp price(model, usage) do
+    {:ok, Mimir.Pricing.cost_microdollars(model, usage)}
+  rescue
+    e in Mimir.Pricing.InvalidConfigError -> {:error, Exception.message(e)}
   end
 
   # RMA 0.5.0 hands turn_guard a %ReqManagedAgents.Usage{} STRUCT, not a plain map — so
@@ -106,11 +140,26 @@ defmodule Mimir.Guard do
   defp normalize_usage(usage) when is_map(usage) do
     %{
       input_tokens: as_count(Map.get(usage, :input_tokens) || Map.get(usage, "input_tokens")),
-      output_tokens: as_count(Map.get(usage, :output_tokens) || Map.get(usage, "output_tokens"))
+      output_tokens: as_count(Map.get(usage, :output_tokens) || Map.get(usage, "output_tokens")),
+      cache_read_input_tokens:
+        as_count(
+          Map.get(usage, :cache_read_input_tokens) || Map.get(usage, "cache_read_input_tokens")
+        ),
+      cache_creation_input_tokens:
+        as_count(
+          Map.get(usage, :cache_creation_input_tokens) ||
+            Map.get(usage, "cache_creation_input_tokens")
+        )
     }
   end
 
-  defp normalize_usage(_usage), do: %{input_tokens: 0, output_tokens: 0}
+  defp normalize_usage(_usage),
+    do: %{
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0
+    }
 
   defp as_count(n) when is_integer(n), do: n
   defp as_count(_), do: 0

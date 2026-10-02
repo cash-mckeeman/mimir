@@ -190,4 +190,42 @@ defmodule Mimir.OracleTest do
     args = [descriptor(%{expected_tokens: nil}), entries, @policy, snapshot()]
     assert apply(Oracle, :decide, args) == apply(Oracle, :decide, args)
   end
+
+  describe "partial pricing entries (no crash)" do
+    test "an :input-only entry does not crash cost filtering when expected_tokens is set" do
+      entries = [entry("son", "anthropic:partial-in")]
+      d = descriptor(%{budget_ceiling_microdollars: 10_000_000})
+      snap = snapshot(pricing: %{"anthropic:partial-in" => %{input: 2_000_000}})
+
+      assert {:decision, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snap)
+    end
+
+    test "an :output-only entry does not crash ranking with no expected_tokens" do
+      entries = [entry("son", "anthropic:partial-out")]
+      d = descriptor(%{expected_tokens: nil})
+      snap = snapshot(pricing: %{"anthropic:partial-out" => %{output: 9_000_000}})
+
+      assert {:decision, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snap)
+    end
+  end
+
+  describe "a snapshot-absent model prices from the vendored DB, not free" do
+    test "the genuinely cheaper model wins, instead of tying at free" do
+      entries = [
+        entry("sonnet", "anthropic:claude-sonnet-4-6"),
+        entry("gpt4o", "openai:gpt-4o")
+      ]
+
+      # Neither model has a snapshot pricing entry. Before the oracle
+      # resolved through Mimir.Pricing, both defaulted to free (input 0)
+      # and tied, so the first-listed candidate won by construction. Now
+      # each resolves the vendored DB's real list rate instead — sonnet at
+      # 3_000_000 µ$/M input, gpt-4o at 2_500_000 µ$/M — so the genuinely
+      # cheaper one wins.
+      d = descriptor(%{expected_tokens: nil})
+      snap = snapshot(pricing: %{})
+
+      assert {:decision, %{entry: %{id: "gpt4o"}}} = Oracle.decide(d, entries, @policy, snap)
+    end
+  end
 end

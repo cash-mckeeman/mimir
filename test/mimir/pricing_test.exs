@@ -56,7 +56,7 @@ defmodule Mimir.PricingTest do
 
   # ── (a) config table wins over vendored DB ───────────────────────────────────
 
-  test "(a) config table entry wins when present, vendored DB not consulted" do
+  test "(a) config table rate wins over the vendored DB's" do
     Application.put_env(:mimir, :pricing_db_path, @fixture_path)
     # "sample-model-a" is in the fixture with 3_000_000 µ$/M input,
     # but we set a config override with a clearly different rate.
@@ -188,4 +188,208 @@ defmodule Mimir.PricingTest do
              output_tokens: 500
            }) == 0
   end
+
+  # ── (e) cache tokens ────────────────────────────────────────────────────────
+
+  describe "cache tokens" do
+    setup do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(
+        handler,
+        [:mimir, :pricing, :no_cache_rate],
+        &__MODULE__.forward_no_cache_rate/4,
+        self()
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+    end
+
+    test "price at the config entry's cache rates" do
+      Application.put_env(:mimir, :pricing, %{
+        "provider:cached" => %{
+          input: 3_000_000,
+          output: 15_000_000,
+          cache_read: 300_000,
+          cache_write: 3_750_000
+        }
+      })
+
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:cached", usage) == 300_000 + 3_750_000
+      refute_received {:no_cache_rate, _, _}
+    end
+
+    test "price at the vendored DB's cache rates" do
+      # sample-model-e: cache read 0.0000003 → 300_000 µ$/M; write 0.00000375 → 3_750_000 µ$/M
+      usage = %{
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_read_input_tokens: 2_000_000,
+        cache_creation_input_tokens: 1_000_000
+      }
+
+      assert Pricing.cost_microdollars("provider:sample-model-e", usage) ==
+               3_000_000 + 600_000 + 3_750_000
+
+      refute_received {:no_cache_rate, _, _}
+    end
+
+    test "a missing cache rate prices at the input rate and emits :no_cache_rate" do
+      # sample-model-f: input 2_000_000 µ$/M, cache read 500_000 µ$/M, no cache write rate
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+
+      assert Pricing.cost_microdollars("provider:sample-model-f", usage) == 500_000 + 2_000_000
+
+      assert_received {:no_cache_rate, measurements, %{model: "provider:sample-model-f"}}
+      assert measurements == %{cache_read_input_tokens: 0, cache_creation_input_tokens: 1_000_000}
+    end
+
+    test "a zero cache rate in the vendored DB is read as missing, never as free" do
+      # sample-model-g: input 1_000_000 µ$/M, both cache rates 0.0
+      usage = %{cache_read_input_tokens: 1_000, cache_creation_input_tokens: 2_000}
+
+      assert Pricing.cost_microdollars("provider:sample-model-g", usage) == 1_000 + 2_000
+
+      assert_received {:no_cache_rate,
+                       %{cache_read_input_tokens: 1_000, cache_creation_input_tokens: 2_000}, _}
+    end
+
+    test "no cache tokens, no :no_cache_rate, whatever the rates" do
+      # sample-model-a has no cache rates at all
+      usage = %{input_tokens: 1_000, output_tokens: 0, cache_read_input_tokens: 0}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
+      refute_received {:no_cache_rate, _, _}
+    end
+  end
+
+  describe "per-field rate resolution" do
+    test "a config entry without cache rates takes the vendored DB's, not its input rate" do
+      # Real vendored DB: $0.30/M. Red if the config entry shadows it: 3_000_000, the input rate.
+      Application.put_env(:mimir, :pricing, %{
+        "anthropic:claude-sonnet-4-6" => %{input: 3_000_000, output: 15_000_000}
+      })
+
+      usage = %{cache_read_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("anthropic:claude-sonnet-4-6", usage) == 300_000
+    end
+
+    test "a config cache rate wins over the vendored DB's, field by field" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:sample-model-e" => %{input: 3_000_000, output: 15_000_000, cache_read: 100_000}
+      })
+
+      # cache read from config (100_000 µ$/M); cache write from the DB (3_750_000 µ$/M)
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:sample-model-e", usage) == 100_000 + 3_750_000
+    end
+
+    test "a config entry missing input or output takes it from the vendored DB" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:sample-model-a" => %{input: 999_000}
+      })
+
+      # input from config; output from the DB (15_000_000 µ$/M)
+      usage = %{input_tokens: 1_000_000, output_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 999_000 + 15_000_000
+    end
+  end
+
+  describe "config rate of zero" do
+    test "a config rate of 0 prices that field free, not missing" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:zero-cache" => %{input: 2_000_000, output: 1_000_000, cache_read: 0}
+      })
+
+      # If 0 were read as missing, cache_read would fall back to the input
+      # rate (2_000_000), never to free.
+      usage = %{cache_read_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:zero-cache", usage) == 0
+    end
+  end
+
+  describe "invalid config entries raise" do
+    test "a negative rate raises Mimir.Pricing.InvalidConfigError naming the model and value" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:negative-cache" => %{input: 2_000_000, output: 1_000_000, cache_read: -500_000}
+      })
+
+      error =
+        assert_raise Mimir.Pricing.InvalidConfigError, fn ->
+          Pricing.cost_microdollars("provider:negative-cache", %{cache_read_input_tokens: 1})
+        end
+
+      assert error.message =~ "provider:negative-cache"
+      assert error.message =~ "cache_read"
+      assert error.message =~ "-500000"
+    end
+
+    test "a non-integer rate raises Mimir.Pricing.InvalidConfigError naming the model and value" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:float-rate" => %{input: 2.5e6, output: 1_000_000}
+      })
+
+      error =
+        assert_raise Mimir.Pricing.InvalidConfigError, fn ->
+          Pricing.cost_microdollars("provider:float-rate", %{input_tokens: 1})
+        end
+
+      assert error.message =~ "provider:float-rate"
+      assert error.message =~ "input"
+    end
+
+    test "an unknown config key raises Mimir.Pricing.InvalidConfigError naming the model and key" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:bad-key" => %{input: 1_000_000, output: 1_000_000, bogus: 1}
+      })
+
+      error =
+        assert_raise Mimir.Pricing.InvalidConfigError, fn ->
+          Pricing.cost_microdollars("provider:bad-key", %{input_tokens: 1})
+        end
+
+      assert error.message =~ "provider:bad-key"
+      assert error.message =~ "bogus"
+    end
+  end
+
+  describe "unpriced model" do
+    test "an unpriced model's cache tokens cost zero too, not the input-rate fallback" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("totally:unpriced-model", usage) == 0
+    end
+  end
+
+  describe "nil cache counts" do
+    test "a nil cache_read_input_tokens counts as zero" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+      # sample-model-a: input_cost_per_token 0.000003 -> 3_000_000 µ$/M
+      usage = %{input_tokens: 1_000, output_tokens: 0, cache_read_input_tokens: nil}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
+    end
+
+    test "a nil cache_creation_input_tokens counts as zero" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+      usage = %{input_tokens: 1_000, output_tokens: 0, cache_creation_input_tokens: nil}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
+    end
+  end
+
+  def forward_no_cache_rate(_event, measurements, metadata, test_pid),
+    do: send(test_pid, {:no_cache_rate, measurements, metadata})
 end
