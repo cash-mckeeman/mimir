@@ -10,7 +10,10 @@ longer hides the vendored DB's cache rates for the same model.
   `:cache_read_input_tokens` and `:cache_creation_input_tokens` (Anthropic's
   names, atom-keyed). A two-key `%{input_tokens:, output_tokens:}` map prices
   exactly as before. A caller holding a usage struct passes
-  `Map.from_struct(usage)`.
+  `Map.from_struct(usage)`. The two cache keys also tolerate an explicit
+  `nil` value (priced as absent) — useful for a caller passing a decoded
+  wire map straight through, where Anthropic's own cache counts can be
+  `null`; `input_tokens`/`output_tokens` don't get the same tolerance.
 - **Cache rates.** A config-table entry takes optional `cache_read:` and
   `cache_write:` (µ$ per million tokens). The vendored LiteLLM DB's
   `cache_read_input_token_cost` and `cache_creation_input_token_cost` are now
@@ -23,6 +26,13 @@ longer hides the vendored DB's cache rates for the same model.
   was ignored entirely. Now a config entry that overrides input and output (a
   negotiated rate, say) inherits the DB's list cache rates unless it sets its
   own, and a partial entry's rates are used for the fields it sets.
+- **The oracle resolves a partial pricing entry too, instead of
+  crashing.** 0.5.0's oracle raised `MatchError` the moment a
+  `Mimir.Snapshot`'s own `:pricing` table held an entry missing `input:`
+  or `output:`, as soon as ranking needed a cost projection. A snapshot's
+  pricing entry can be partial the same way a config entry can; the
+  oracle now resolves it the same way too, instead of requiring every
+  entry to be complete.
 - **Never free by default.** With no cache rate from either source, cache
   tokens price at the model's input rate rather than at zero, and
   `[:mimir, :pricing, :no_cache_rate]` fires, with the token counts priced
