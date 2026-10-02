@@ -403,6 +403,15 @@ defmodule Mimir.PricingTest do
 
       assert Pricing.cost_microdollars("anthropic:claude-opus-5-5", usage_in) > 0
       assert Pricing.cost_microdollars("anthropic:claude-opus-5-5", usage_out) > 0
+
+      assert Pricing.cost_microdollars("anthropic:claude-opus-5-5", %{
+               cache_read_input_tokens: 1_000_000
+             }) ==
+               200_000
+
+      assert Pricing.cost_microdollars("anthropic:claude-opus-5-5", %{
+               cache_creation_input_tokens: 1_000_000
+             }) == 5_000_000
     end
 
     test "claude-sonnet-5-5 prices non-zero for input and output" do
@@ -411,6 +420,15 @@ defmodule Mimir.PricingTest do
 
       assert Pricing.cost_microdollars("anthropic:claude-sonnet-5-5", usage_in) > 0
       assert Pricing.cost_microdollars("anthropic:claude-sonnet-5-5", usage_out) > 0
+
+      assert Pricing.cost_microdollars("anthropic:claude-sonnet-5-5", %{
+               cache_read_input_tokens: 1_000_000
+             }) ==
+               200_000
+
+      assert Pricing.cost_microdollars("anthropic:claude-sonnet-5-5", %{
+               cache_creation_input_tokens: 1_000_000
+             }) == 2_500_000
     end
 
     test "claude-fable-5-1 prices non-zero for input and output" do
@@ -419,6 +437,15 @@ defmodule Mimir.PricingTest do
 
       assert Pricing.cost_microdollars("anthropic:claude-fable-5-1", usage_in) > 0
       assert Pricing.cost_microdollars("anthropic:claude-fable-5-1", usage_out) > 0
+
+      assert Pricing.cost_microdollars("anthropic:claude-fable-5-1", %{
+               cache_read_input_tokens: 1_000_000
+             }) ==
+               250_000
+
+      assert Pricing.cost_microdollars("anthropic:claude-fable-5-1", %{
+               cache_creation_input_tokens: 1_000_000
+             }) == 12_500_000
     end
   end
 
