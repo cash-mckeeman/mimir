@@ -14,6 +14,11 @@ defmodule Mimir.Pricing do
   A config entry that sets only `input:` and `output:` (a negotiated rate, say) still
   takes the vendored DB's list cache rates unless it sets its own.
 
+  An explicit `0` in a config entry is honored as the operator's rate: that field
+  prices free, same as any other rate the config table sets. This differs from a
+  zero in the vendored DB, which counts as missing (below) — the DB's zero marks an
+  untracked cost LiteLLM hasn't filled in, not a negotiated zero-cost rate.
+
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
   cache rates. With no cache rate from either source they price at the input rate, never
   as free, and `[:mimir, :pricing, :no_cache_rate]` fires, only when such tokens are

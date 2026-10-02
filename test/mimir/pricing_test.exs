@@ -300,6 +300,34 @@ defmodule Mimir.PricingTest do
     end
   end
 
+  describe "config rate of zero" do
+    test "a config rate of 0 prices that field free, not missing" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:zero-cache" => %{input: 2_000_000, output: 1_000_000, cache_read: 0}
+      })
+
+      # If 0 were read as missing, cache_read would fall back to the input
+      # rate (2_000_000), never to free.
+      usage = %{cache_read_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:zero-cache", usage) == 0
+    end
+
+    test "a negative config rate is rejected, not honored" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:negative-cache" => %{input: 2_000_000, output: 1_000_000, cache_read: -500_000}
+      })
+
+      # A negative rate must not be accepted as the field's rate: it is
+      # filtered out here, so cache_read falls back to the input rate.
+      usage = %{cache_read_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:negative-cache", usage) == 2_000_000
+    end
+  end
+
   def forward_no_cache_rate(_event, measurements, metadata, test_pid),
     do: send(test_pid, {:no_cache_rate, measurements, metadata})
 end
