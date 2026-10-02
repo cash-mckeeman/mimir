@@ -188,4 +188,82 @@ defmodule Mimir.PricingTest do
              output_tokens: 500
            }) == 0
   end
+
+  # ── (e) cache tokens ────────────────────────────────────────────────────────
+
+  describe "cache tokens" do
+    setup do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(
+        handler,
+        [:mimir, :pricing, :no_cache_rate],
+        &__MODULE__.forward_no_cache_rate/4,
+        self()
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+    end
+
+    test "price at the config entry's cache rates" do
+      Application.put_env(:mimir, :pricing, %{
+        "provider:cached" => %{
+          input: 3_000_000,
+          output: 15_000_000,
+          cache_read: 300_000,
+          cache_write: 3_750_000
+        }
+      })
+
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:cached", usage) == 300_000 + 3_750_000
+      refute_received {:no_cache_rate, _, _}
+    end
+
+    test "price at the vendored DB's cache rates" do
+      # sample-model-e: cache read 0.0000003 → 300_000 µ$/M; write 0.00000375 → 3_750_000 µ$/M
+      usage = %{
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_read_input_tokens: 2_000_000,
+        cache_creation_input_tokens: 1_000_000
+      }
+
+      assert Pricing.cost_microdollars("provider:sample-model-e", usage) ==
+               3_000_000 + 600_000 + 3_750_000
+
+      refute_received {:no_cache_rate, _, _}
+    end
+
+    test "a missing cache rate prices at the input rate and emits :no_cache_rate" do
+      # sample-model-f: input 2_000_000 µ$/M, cache read 500_000 µ$/M, no cache write rate
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+
+      assert Pricing.cost_microdollars("provider:sample-model-f", usage) == 500_000 + 2_000_000
+
+      assert_received {:no_cache_rate, measurements, %{model: "provider:sample-model-f"}}
+      assert measurements == %{cache_read_input_tokens: 0, cache_creation_input_tokens: 1_000_000}
+    end
+
+    test "a zero cache rate in the vendored DB is read as missing, never as free" do
+      # sample-model-g: input 1_000_000 µ$/M, both cache rates 0.0
+      usage = %{cache_read_input_tokens: 1_000, cache_creation_input_tokens: 2_000}
+
+      assert Pricing.cost_microdollars("provider:sample-model-g", usage) == 1_000 + 2_000
+
+      assert_received {:no_cache_rate,
+                       %{cache_read_input_tokens: 1_000, cache_creation_input_tokens: 2_000}, _}
+    end
+
+    test "no cache tokens, no :no_cache_rate, whatever the rates" do
+      # sample-model-a has no cache rates at all
+      usage = %{input_tokens: 1_000, output_tokens: 0, cache_read_input_tokens: 0}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
+      refute_received {:no_cache_rate, _, _}
+    end
+  end
+
+  def forward_no_cache_rate(_event, measurements, metadata, test_pid),
+    do: send(test_pid, {:no_cache_rate, measurements, metadata})
 end

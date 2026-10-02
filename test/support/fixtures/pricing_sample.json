@@ -17,5 +17,25 @@
     "input_cost_per_token": 0.0000010,
     "output_cost_per_token": 0.0000050,
     "max_tokens": 4096
+  },
+  "sample-model-e": {
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.0000003,
+    "cache_creation_input_token_cost": 0.00000375,
+    "max_tokens": 4096
+  },
+  "sample-model-f": {
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.000008,
+    "cache_read_input_token_cost": 0.0000005,
+    "max_tokens": 4096
+  },
+  "sample-model-g": {
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000004,
+    "cache_read_input_token_cost": 0.0,
+    "cache_creation_input_token_cost": 0.0,
+    "max_tokens": 4096
   }
 }

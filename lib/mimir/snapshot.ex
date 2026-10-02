@@ -18,7 +18,7 @@ defmodule Mimir.Snapshot do
     parent_remaining: :unlimited
   ]
 
-  @type rates :: %{input: non_neg_integer(), output: non_neg_integer()}
+  @type rates :: Mimir.Pricing.rates()
   @type t :: %__MODULE__{
           pricing: %{optional(String.t()) => rates()},
           snapshot_at: DateTime.t(),
@@ -29,7 +29,7 @@ defmodule Mimir.Snapshot do
   @doc """
   Assemble a snapshot from explicit inputs.
 
-  - `:pricing` — model → `%{input:, output:}` rate map; defaults to
+  - `:pricing` — model → `t:Mimir.Pricing.rates/0` map; defaults to
     `Application.get_env(:mimir, :pricing, %{})`.
   - `:health` — lane → `:ok | :degraded` (e.g. `Mimir.Health.all/0`); default `%{}`.
   - `:parent_remaining` — remaining caller budget in microdollars, or `:unlimited`.

@@ -81,7 +81,7 @@ All configuration lives under the `:mimir` application:
 | Key | Used by | Meaning |
 | --- | --- | --- |
 | `:catalog` | `Mimir.Catalog` | List of routable entry configs (`id`, `model`, `lane`, `runtime`, ...). |
-| `:pricing` | `Mimir.Pricing`, `Mimir.Snapshot` | Config-table token rates, `"provider:model" => %{input:, output:}`. Wins over the vendored DB. |
+| `:pricing` | `Mimir.Pricing`, `Mimir.Snapshot` | Config-table token rates in µ$ per million tokens, `"provider:model" => %{input:, output:}`, with optional `cache_read:` and `cache_write:`. Wins over the vendored DB. |
 | `:pricing_db_path` | `Mimir.Pricing` | Override path to the vendored pricing DB (useful in tests). |
 | `:health_threshold` | `Mimir.Health` | Failure-streak count at which a lane is reported `:degraded`. Default `3`. |
 | `:completion_event` | `Mimir.Health` | Telemetry event `Health.attach/0` listens on. Default `[:mimir, :completion]`. |

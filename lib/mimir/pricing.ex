@@ -10,9 +10,16 @@ defmodule Mimir.Pricing do
        - then `"<provider>/<model_id>"`
     3. Miss → zero (never crashes metering).
 
-  Price table (`:mimir, :pricing`) values are `%{input: µ$_per_million, output: µ$_per_million}`.
-  The vendored DB stores the same shape after converting LiteLLM's USD/token floats at load time:
-  `round(cost * 1.0e12)` → integer µ$/M tokens. Integer math only on the hot path.
+  Rates are integer µ$ per million tokens: `input:` and `output:`, plus optional
+  `cache_read:` and `cache_write:`. The vendored DB stores the same shape after converting
+  LiteLLM's USD/token floats at load time: `round(cost * 1.0e12)` → integer µ$/M tokens.
+  Integer math only on the hot path.
+
+  Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
+  cache rates. A cache rate that is missing, or zero in the vendored DB, prices those
+  tokens at the model's input rate instead, never as free, and emits
+  `[:mimir, :pricing, :no_cache_rate]` with the token counts so priced as measurements and
+  `%{model: model}` as metadata. It fires only when such tokens are present.
 
   Refresh the vendored DB with `mix mimir.pricing.refresh`. The `:mimir, :pricing_db_path`
   config key overrides the default priv path (useful in tests).
@@ -20,9 +27,20 @@ defmodule Mimir.Pricing do
 
   require Logger
 
+  @typedoc "Integer µ$ per million tokens: a config-table entry, or a vendored DB entry."
+  @type rates :: %{
+          required(:input) => non_neg_integer(),
+          required(:output) => non_neg_integer(),
+          optional(:cache_read) => non_neg_integer(),
+          optional(:cache_write) => non_neg_integer()
+        }
+
+  @typedoc "Token counts, atom-keyed; a missing key counts as zero."
   @type usage :: %{
           optional(:input_tokens) => non_neg_integer(),
-          optional(:output_tokens) => non_neg_integer()
+          optional(:output_tokens) => non_neg_integer(),
+          optional(:cache_read_input_tokens) => non_neg_integer(),
+          optional(:cache_creation_input_tokens) => non_neg_integer()
         }
 
   @doc """
@@ -31,13 +49,36 @@ defmodule Mimir.Pricing do
   """
   @spec cost_microdollars(String.t(), usage()) :: non_neg_integer()
   def cost_microdollars(model, usage) when is_binary(model) and is_map(usage) do
-    %{input: in_rate, output: out_rate} = price(model)
-    input = Map.get(usage, :input_tokens, 0)
-    output = Map.get(usage, :output_tokens, 0)
-    div(input * in_rate, 1_000_000) + div(output * out_rate, 1_000_000)
+    rates = price(model)
+    cache_read = Map.get(usage, :cache_read_input_tokens, 0)
+    cache_write = Map.get(usage, :cache_creation_input_tokens, 0)
+    report_missing_cache_rates(model, rates, cache_read, cache_write)
+
+    per_million(Map.get(usage, :input_tokens, 0), rates.input) +
+      per_million(Map.get(usage, :output_tokens, 0), rates.output) +
+      per_million(cache_read, Map.get(rates, :cache_read, rates.input)) +
+      per_million(cache_write, Map.get(rates, :cache_write, rates.input))
+  end
+
+  defp per_million(tokens, rate), do: div(tokens * rate, 1_000_000)
+
+  defp report_missing_cache_rates(model, rates, cache_read, cache_write) do
+    unpriced_read = if Map.has_key?(rates, :cache_read), do: 0, else: cache_read
+    unpriced_write = if Map.has_key?(rates, :cache_write), do: 0, else: cache_write
+
+    if unpriced_read + unpriced_write > 0 do
+      :telemetry.execute(
+        [:mimir, :pricing, :no_cache_rate],
+        %{cache_read_input_tokens: unpriced_read, cache_creation_input_tokens: unpriced_write},
+        %{model: model}
+      )
+    end
+
+    :ok
   end
 
   # (1) config table wins; (2) vendored DB fallback; (3) zero default.
+  @spec price(String.t()) :: rates()
   defp price(model) do
     config_table = Application.get_env(:mimir, :pricing, %{})
 
@@ -102,22 +143,31 @@ defmodule Mimir.Pricing do
       %{}
   end
 
-  # Converts raw LiteLLM JSON map to %{model_key => %{input: µ$/M, output: µ$/M}}.
+  # Converts raw LiteLLM JSON map to %{model_key => rates}, in µ$/M tokens.
   # Entries missing input_cost_per_token or output_cost_per_token are skipped.
+  # A cache cost is kept only when positive: LiteLLM writes 0.0 for some cache
+  # costs, and a zero here would price cached tokens as free.
   # Conversion: round(usd_per_token * 1.0e12) = µ$/M tokens.
   defp convert_db(raw) when is_map(raw) do
     Enum.reduce(raw, %{}, fn
-      {key, %{"input_cost_per_token" => inp, "output_cost_per_token" => out}}, acc
+      {key, %{"input_cost_per_token" => inp, "output_cost_per_token" => out} = entry}, acc
       when is_number(inp) and is_number(out) ->
-        Map.put(acc, key, %{
-          input: round(inp * 1.0e12),
-          output: round(out * 1.0e12)
-        })
+        rates =
+          %{input: round(inp * 1.0e12), output: round(out * 1.0e12)}
+          |> put_cache_rate(:cache_read, entry["cache_read_input_token_cost"])
+          |> put_cache_rate(:cache_write, entry["cache_creation_input_token_cost"])
+
+        Map.put(acc, key, rates)
 
       _other, acc ->
         acc
     end)
   end
+
+  defp put_cache_rate(rates, field, cost) when is_number(cost) and cost > 0,
+    do: Map.put(rates, field, round(cost * 1.0e12))
+
+  defp put_cache_rate(rates, _field, _cost), do: rates
 
   defp maybe_gunzip(body, path) do
     if String.ends_with?(path, ".gz"), do: :zlib.gunzip(body), else: body
