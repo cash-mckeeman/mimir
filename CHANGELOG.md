@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.0 (2026-10-02)
+
+Cache-aware pricing. `Mimir.Pricing.cost_microdollars/2` prices cache read and
+cache write tokens, and resolves each rate on its own, so a config entry no
+longer hides the vendored DB's cache rates for the same model.
+
+- **`usage` widens, additively.** `Mimir.Pricing.usage` gains optional
+  `:cache_read_input_tokens` and `:cache_creation_input_tokens` (Anthropic's
+  names, atom-keyed). A two-key `%{input_tokens:, output_tokens:}` map prices
+  exactly as before. A caller holding a usage struct passes
+  `Map.from_struct(usage)`.
+- **Cache rates.** A config-table entry takes optional `cache_read:` and
+  `cache_write:` (µ$ per million tokens). The vendored LiteLLM DB's
+  `cache_read_input_token_cost` and `cache_creation_input_token_cost` are now
+  read. Cache writes price at the single `cache_write` rate; LiteLLM's separate
+  1-hour cache-write cost is not read.
+- **Per-field resolution.** Each of `input`, `output`, `cache_read` and
+  `cache_write` comes from the config entry when it sets that rate, else from
+  the vendored DB. Before, a config entry won whole: an entry with only
+  `input:`/`output:` hid the DB's cache rates, and an entry missing `output:`
+  was ignored entirely. Now a config entry that overrides input and output (a
+  negotiated rate, say) inherits the DB's list cache rates unless it sets its
+  own, and a partial entry's rates are used for the fields it sets.
+- **Never free.** With no cache rate from either source, cache tokens price at
+  the model's input rate and `[:mimir, :pricing, :no_cache_rate]` fires, with
+  the token counts priced that way as measurements and `%{model: model}` as
+  metadata. It fires only when such tokens are present. A zero cache cost in
+  the vendored DB counts as no rate.
+- **Types.** New `Mimir.Pricing.rates`. `Mimir.Snapshot.rates` now refers to
+  it, so it widens to admit the optional cache rates; the oracle still ranks
+  on `input` and `output` only.
+- No new runtime dependency; the `~> 1.15` Elixir floor is unchanged.
+
 ## 0.5.0 (2026-07-25)
 
 Adds `Mimir.CloudEvent`, a CloudEvents v1.0 envelope, as the ecosystem's uniform
