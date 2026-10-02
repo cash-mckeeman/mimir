@@ -33,6 +33,17 @@ longer hides the vendored DB's cache rates for the same model.
 - **Types.** New `Mimir.Pricing.rates`. `Mimir.Snapshot.rates` now refers to
   it, so it widens to admit the optional cache rates; the oracle still ranks
   on `input` and `output` only.
+- **The oracle resolves a snapshot's missing pricing entries from the
+  vendored DB too, not only zero.** A model absent from a snapshot's
+  `:pricing` table previously ranked as free — `0` input/output, always
+  cheapest. It now resolves the same way `Mimir.Pricing` does: the vendored
+  DB's list rate when there is one, zero only when there is neither a
+  config entry nor a DB entry. **This can change which candidate a snapshot
+  with an incomplete pricing table ranks cheapest** — a DB-priced model
+  that was accidentally priced free no longer beats a genuinely cheaper
+  one. Keep a snapshot's `:pricing` table complete, or rely on the DB
+  fallback deliberately, for every candidate you want cost-ranked
+  honestly.
 - **`Mimir.Guard` cost caps price cache tokens.** `for_grant/3`'s grant
   budget and `caps/1`'s `:max_cost_microdollars` now include
   `cache_read_input_tokens`/`cache_creation_input_tokens` in the priced

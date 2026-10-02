@@ -208,4 +208,24 @@ defmodule Mimir.OracleTest do
       assert {:decision, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snap)
     end
   end
+
+  describe "a snapshot-absent model prices from the vendored DB, not free" do
+    test "the genuinely cheaper model wins, instead of tying at free" do
+      entries = [
+        entry("sonnet", "anthropic:claude-sonnet-4-6"),
+        entry("gpt4o", "openai:gpt-4o")
+      ]
+
+      # Neither model has a snapshot pricing entry. Before the oracle
+      # resolved through Mimir.Pricing, both defaulted to free (input 0)
+      # and tied, so the first-listed candidate won by construction. Now
+      # each resolves the vendored DB's real list rate instead — sonnet at
+      # 3_000_000 µ$/M input, gpt-4o at 2_500_000 µ$/M — so the genuinely
+      # cheaper one wins.
+      d = descriptor(%{expected_tokens: nil})
+      snap = snapshot(pricing: %{})
+
+      assert {:decision, %{entry: %{id: "gpt4o"}}} = Oracle.decide(d, entries, @policy, snap)
+    end
+  end
 end
