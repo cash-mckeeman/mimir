@@ -12,12 +12,14 @@ These retained rates are compatibility data, not a claim of current provider
 availability or prices. Eight records whose upstream schemas no longer match
 the token-price loader also retain their previous compatible token rates;
 image-output-token fields are not interpreted as text-output-token prices.
+The compatible refreshed records update 287 previously priced rate maps,
+including 169 with input/output changes and 118 with cache-only changes.
 The three new Claude IDs have regression checks for cache-read and cache-write
 rates as well as positive input/output prices.
 
 No rate changed for any previously-priced model
 checked against the refresh (`claude-sonnet-4-6`, `gpt-4o`,
-`claude-haiku-4-5`); upstream only added metadata fields around them.
+`claude-haiku-4-5`); upstream changed non-billing metadata around them.
 
 ## 0.6.0 (2026-10-02)
 
