@@ -190,4 +190,22 @@ defmodule Mimir.OracleTest do
     args = [descriptor(%{expected_tokens: nil}), entries, @policy, snapshot()]
     assert apply(Oracle, :decide, args) == apply(Oracle, :decide, args)
   end
+
+  describe "partial pricing entries (no crash)" do
+    test "an :input-only entry resolves :output from the DB when expected_tokens is set" do
+      entries = [entry("son", "anthropic:partial-in")]
+      d = descriptor(%{budget_ceiling_microdollars: 10_000_000})
+      snap = snapshot(pricing: %{"anthropic:partial-in" => %{input: 2_000_000}})
+
+      assert {:decision, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snap)
+    end
+
+    test "an :output-only entry does not crash ranking with no expected_tokens" do
+      entries = [entry("son", "anthropic:partial-out")]
+      d = descriptor(%{expected_tokens: nil})
+      snap = snapshot(pricing: %{"anthropic:partial-out" => %{output: 9_000_000}})
+
+      assert {:decision, %{entry: %{id: "son"}}} = Oracle.decide(d, entries, @policy, snap)
+    end
+  end
 end

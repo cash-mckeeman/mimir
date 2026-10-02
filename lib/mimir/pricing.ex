@@ -52,7 +52,7 @@ defmodule Mimir.Pricing do
   """
   @spec cost_microdollars(String.t(), usage()) :: non_neg_integer()
   def cost_microdollars(model, usage) when is_binary(model) and is_map(usage) do
-    rates = price(model)
+    rates = configured_price(model)
     cache_read = Map.get(usage, :cache_read_input_tokens, 0)
     cache_write = Map.get(usage, :cache_creation_input_tokens, 0)
     report_missing_cache_rates(model, rates, cache_read, cache_write)
@@ -80,18 +80,34 @@ defmodule Mimir.Pricing do
     :ok
   end
 
+  @doc """
+  Resolves `model`'s full rate map from an explicit config `entry`, which
+  may be partial (or `%{}`, or absent a key entirely). Every field —
+  `input`, `output`, `cache_read`, `cache_write` — resolves on its own: the
+  entry's rate when it sets one, else the vendored DB's, else zero for
+  `input`/`output` (cache rates may stay absent). This is the same
+  per-field rule `cost_microdollars/2` applies to the `:mimir, :pricing`
+  table; `Mimir.Snapshot`/`Mimir.Oracle` call it directly so a snapshot's
+  own pricing table — which may hold the same kind of partial entry —
+  resolves identically instead of being read as a bare `%{input:, output:}`
+  pair.
+  """
+  @spec resolve_rates(String.t(), map()) :: rates()
+  def resolve_rates(model, entry) when is_binary(model) do
+    %{input: 0, output: 0}
+    |> Map.merge(vendored_price(model) || %{})
+    |> Map.merge(configured_rates(entry))
+  end
+
   # Per field: config entry, then vendored DB; cache rates may stay absent.
-  @spec price(String.t()) :: rates()
-  defp price(model) do
-    configured =
+  @spec configured_price(String.t()) :: rates()
+  defp configured_price(model) do
+    entry =
       :mimir
       |> Application.get_env(:pricing, %{})
       |> Map.get(model, %{})
-      |> configured_rates()
 
-    %{input: 0, output: 0}
-    |> Map.merge(vendored_price(model) || %{})
-    |> Map.merge(configured)
+    resolve_rates(model, entry)
   end
 
   defp configured_rates(entry) when is_map(entry) do
