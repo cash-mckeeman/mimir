@@ -119,6 +119,23 @@ defmodule Mimir.GuardTest do
       # non-integer token values
       assert guard.(%{usage: %{input_tokens: "lots", output_tokens: nil}, turns: 1}) == :cont
     end
+
+    test "a misconfigured pricing entry halts with :invalid_pricing instead of raising" do
+      Application.put_env(:mimir, :pricing, %{
+        "bad:float-rate" => %{input: 3.0e6, output: 1_000_000}
+      })
+
+      guard =
+        Mimir.Guard.for_grant(
+          %Mimir.Grant{key: "vk", budget_microdollars: 1_000},
+          "bad:float-rate"
+        )
+
+      assert {:halt, {:invalid_pricing, info}} = guard.(state(1, 1))
+      assert info.model == "bad:float-rate"
+      assert info.message =~ "bad:float-rate"
+      assert info.message =~ "input"
+    end
   end
 
   describe "caps/1" do
@@ -139,6 +156,17 @@ defmodule Mimir.GuardTest do
     test "max_cost_microdollars with model prices like a grant" do
       guard = Mimir.Guard.caps(max_cost_microdollars: 18_000, model: @model)
       assert {:halt, {:budget_exceeded, _}} = guard.(state(1_000, 1_000))
+    end
+
+    test "max_cost_microdollars halts with :invalid_pricing instead of raising" do
+      Application.put_env(:mimir, :pricing, %{
+        "bad:negative-rate" => %{input: -5, output: 1_000_000}
+      })
+
+      guard = Mimir.Guard.caps(max_cost_microdollars: 1_000, model: "bad:negative-rate")
+
+      assert {:halt, {:invalid_pricing, info}} = guard.(state(1, 1))
+      assert info.model == "bad:negative-rate"
     end
   end
 end
