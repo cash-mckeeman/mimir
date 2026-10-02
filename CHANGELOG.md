@@ -41,9 +41,15 @@ longer hides the vendored DB's cache rates for the same model.
   config entry nor a DB entry. **This can change which candidate a snapshot
   with an incomplete pricing table ranks cheapest** — a DB-priced model
   that was accidentally priced free no longer beats a genuinely cheaper
-  one. Keep a snapshot's `:pricing` table complete, or rely on the DB
-  fallback deliberately, for every candidate you want cost-ranked
-  honestly.
+  one. **It can also change whether a routing call decides at all.** A
+  candidate missing from the pricing table used to pass any budget
+  ceiling for free; now its projected cost is priced for real, so a call
+  that returned a decision before can come back `{:no_candidate, [:cost],
+  …}` instead, if that candidate's real cost is over the ceiling (or the
+  caller's remaining budget) and no other candidate is viable. Keep a
+  snapshot's `:pricing` table complete, or rely on the DB fallback
+  deliberately, for every candidate you want cost-ranked — and
+  cost-filtered — honestly.
 - **`Mimir.Guard` cost caps price cache tokens.** `for_grant/3`'s grant
   budget and `caps/1`'s `:max_cost_microdollars` now include
   `cache_read_input_tokens`/`cache_creation_input_tokens` in the priced
