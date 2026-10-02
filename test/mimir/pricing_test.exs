@@ -390,6 +390,38 @@ defmodule Mimir.PricingTest do
     end
   end
 
+  # ── vendored DB: current Claude ids ──────────────────────────────────────────
+  #
+  # No @fixture_path override here — these read the real vendored
+  # `priv/pricing/litellm_model_prices.json.gz`, so a refresh that drops one
+  # of these ids reddens here, not just in the fixture-backed tests above.
+
+  describe "vendored DB: current Claude ids" do
+    test "claude-opus-5-5 prices non-zero for input and output" do
+      usage_in = %{input_tokens: 1_000_000, output_tokens: 0}
+      usage_out = %{input_tokens: 0, output_tokens: 1_000_000}
+
+      assert Pricing.cost_microdollars("anthropic:claude-opus-5-5", usage_in) > 0
+      assert Pricing.cost_microdollars("anthropic:claude-opus-5-5", usage_out) > 0
+    end
+
+    test "claude-sonnet-5-5 prices non-zero for input and output" do
+      usage_in = %{input_tokens: 1_000_000, output_tokens: 0}
+      usage_out = %{input_tokens: 0, output_tokens: 1_000_000}
+
+      assert Pricing.cost_microdollars("anthropic:claude-sonnet-5-5", usage_in) > 0
+      assert Pricing.cost_microdollars("anthropic:claude-sonnet-5-5", usage_out) > 0
+    end
+
+    test "claude-fable-5-1 prices non-zero for input and output" do
+      usage_in = %{input_tokens: 1_000_000, output_tokens: 0}
+      usage_out = %{input_tokens: 0, output_tokens: 1_000_000}
+
+      assert Pricing.cost_microdollars("anthropic:claude-fable-5-1", usage_in) > 0
+      assert Pricing.cost_microdollars("anthropic:claude-fable-5-1", usage_out) > 0
+    end
+  end
+
   def forward_no_cache_rate(_event, measurements, metadata, test_pid),
     do: send(test_pid, {:no_cache_rate, measurements, metadata})
 end
