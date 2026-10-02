@@ -54,13 +54,16 @@ longer hides the vendored DB's cache rates for the same model.
 - **A misconfigured `:mimir, :pricing` entry now raises, loudly, where
   0.5.0 accepted it silently.** `Mimir.Pricing.cost_microdollars/2` (and
   anything that resolves rates through it, including the oracle) raises
-  `ArgumentError` for: a rate that isn't a non-negative integer (0.5.0
+  `Mimir.Pricing.InvalidConfigError`, a dedicated exception (not a bare
+  `ArgumentError`, so a caller can rescue this failure specifically
+  without swallowing an unrelated one), for: a rate that isn't a
+  non-negative integer (0.5.0
   already raised on a float, in `div/2`, so this narrows rather than
   widens that case); a negative rate (0.5.0 used it directly, pricing
   silently negative); and a key outside `input:`/`output:`/`cache_read:`/
   `cache_write:` (0.5.0's `%{input:, output:}` match ignored any extra
   key in the map — a stray `currency:` field, say — and now raises
-  instead). `Mimir.Guard` rescues this and halts with
+  instead). `Mimir.Guard` rescues this specific exception and halts with
   `{:invalid_pricing, %{model:, usage:, message:}}` instead of raising
   mid-run; calling `Mimir.Pricing` directly still raises.
 - No new runtime dependency.

@@ -164,6 +164,29 @@ defmodule Mimir.GuardTest do
       assert info.message =~ "bad:float-rate"
       assert info.message =~ "input"
     end
+
+    test "an unrelated ArgumentError still raises, not folded into :invalid_pricing" do
+      # Reproduces Application.app_dir(:mimir, …) raising ArgumentError
+      # ("unknown application: :mimir") once mimir's own code is off the
+      # VM's load path — the shape of failure a stripped/escript build can
+      # hit, and nothing to do with pricing config. Guard's rescue must not
+      # catch this: only Mimir.Pricing.InvalidConfigError is pricing
+      # config's own.
+      #
+      # This runs as a fresh `mix run` OS process, not inline here: taking
+      # mimir off the code path is global, VM-wide state, and this test
+      # file runs alongside async test files in the same `mix test` VM —
+      # mutating it in-process risks a module load from another test
+      # racing the window it's removed, which is exactly the flake this
+      # isolation avoids.
+      script = Path.expand("../support/unrelated_argument_error_probe.exs", __DIR__)
+
+      {output, exit_code} =
+        System.cmd("mix", ["run", script], env: [{"MIX_ENV", "test"}], stderr_to_stdout: true)
+
+      assert exit_code == 0, "probe script failed:\n#{output}"
+      assert output =~ "PROBE_OK: unknown application: :mimir"
+    end
   end
 
   describe "caps/1" do

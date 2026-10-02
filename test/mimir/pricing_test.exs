@@ -316,7 +316,7 @@ defmodule Mimir.PricingTest do
   end
 
   describe "invalid config entries raise" do
-    test "a negative rate raises ArgumentError naming the model and value" do
+    test "a negative rate raises Mimir.Pricing.InvalidConfigError naming the model and value" do
       Application.put_env(:mimir, :pricing_db_path, @fixture_path)
 
       Application.put_env(:mimir, :pricing, %{
@@ -324,7 +324,7 @@ defmodule Mimir.PricingTest do
       })
 
       error =
-        assert_raise ArgumentError, fn ->
+        assert_raise Mimir.Pricing.InvalidConfigError, fn ->
           Pricing.cost_microdollars("provider:negative-cache", %{cache_read_input_tokens: 1})
         end
 
@@ -333,7 +333,7 @@ defmodule Mimir.PricingTest do
       assert error.message =~ "-500000"
     end
 
-    test "a non-integer rate raises ArgumentError naming the model and value" do
+    test "a non-integer rate raises Mimir.Pricing.InvalidConfigError naming the model and value" do
       Application.put_env(:mimir, :pricing_db_path, @fixture_path)
 
       Application.put_env(:mimir, :pricing, %{
@@ -341,7 +341,7 @@ defmodule Mimir.PricingTest do
       })
 
       error =
-        assert_raise ArgumentError, fn ->
+        assert_raise Mimir.Pricing.InvalidConfigError, fn ->
           Pricing.cost_microdollars("provider:float-rate", %{input_tokens: 1})
         end
 
@@ -349,7 +349,7 @@ defmodule Mimir.PricingTest do
       assert error.message =~ "input"
     end
 
-    test "an unknown config key raises ArgumentError naming the model and key" do
+    test "an unknown config key raises Mimir.Pricing.InvalidConfigError naming the model and key" do
       Application.put_env(:mimir, :pricing_db_path, @fixture_path)
 
       Application.put_env(:mimir, :pricing, %{
@@ -357,7 +357,7 @@ defmodule Mimir.PricingTest do
       })
 
       error =
-        assert_raise ArgumentError, fn ->
+        assert_raise Mimir.Pricing.InvalidConfigError, fn ->
           Pricing.cost_microdollars("provider:bad-key", %{input_tokens: 1})
         end
 

@@ -1,3 +1,15 @@
+defmodule Mimir.Pricing.InvalidConfigError do
+  @moduledoc """
+  Raised by `Mimir.Pricing` for a misconfigured pricing entry — the
+  `:mimir, :pricing` config table's, or a `Mimir.Snapshot`'s own — rather
+  than any other `ArgumentError` a bug or a hostile environment might
+  raise from the same call. `Mimir.Guard` rescues only this exception and
+  halts instead of raising mid-run; calling `Mimir.Pricing` or
+  `Mimir.Oracle` directly still raises it.
+  """
+  defexception [:message]
+end
+
 defmodule Mimir.Pricing do
   @moduledoc """
   Token usage -> integer microdollar cost.
@@ -20,10 +32,11 @@ defmodule Mimir.Pricing do
   untracked cost LiteLLM hasn't filled in, not a negotiated zero-cost rate.
 
   A misconfigured entry is loud: a key outside `input:`/`output:`/`cache_read:`/
-  `cache_write:`, or a rate that isn't a non-negative integer, raises `ArgumentError`
-  naming the model and the offending key/value, whenever that model's rate is
-  resolved — nothing is memoized, so every call re-validates. `Mimir.Guard` rescues
-  this and halts instead of raising mid-run; calling this module directly does not.
+  `cache_write:`, or a rate that isn't a non-negative integer, raises
+  `Mimir.Pricing.InvalidConfigError` naming the model and the offending key/value,
+  whenever that model's rate is resolved — nothing is memoized, so every call
+  re-validates. `Mimir.Guard` rescues this specific exception and halts instead of
+  raising mid-run; calling this module directly does not.
 
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
   cache rates. With no cache rate from either source they price at the input rate rather
@@ -132,8 +145,11 @@ defmodule Mimir.Pricing do
   end
 
   # A misconfigured entry is loud, not silently dropped: an unknown key or an
-  # invalid rate value raises ArgumentError naming the model and the
-  # offending key/value, at the point of use.
+  # invalid rate value raises Mimir.Pricing.InvalidConfigError naming the
+  # model and the offending key/value, at the point of use. A dedicated
+  # exception, not a bare ArgumentError, so a caller that wants to rescue
+  # this specific failure (Mimir.Guard does) never swallows an unrelated
+  # ArgumentError from somewhere else in the same call.
   defp configured_rates(model, entry) when is_map(entry) do
     Map.new(entry, fn {field, rate} -> {field, validate_rate!(model, field, rate)} end)
   end
@@ -142,15 +158,17 @@ defmodule Mimir.Pricing do
 
   defp validate_rate!(model, field, rate) do
     unless field in @rate_fields do
-      raise ArgumentError,
-            "Mimir.Pricing: model #{inspect(model)} has an unknown pricing key " <>
-              "#{inspect(field)} (expected one of #{inspect(@rate_fields)})"
+      raise Mimir.Pricing.InvalidConfigError,
+        message:
+          "Mimir.Pricing: model #{inspect(model)} has an unknown pricing key " <>
+            "#{inspect(field)} (expected one of #{inspect(@rate_fields)})"
     end
 
     unless is_integer(rate) and rate >= 0 do
-      raise ArgumentError,
-            "Mimir.Pricing: model #{inspect(model)} has an invalid #{field} rate: " <>
-              "#{inspect(rate)} (expected a non-negative integer)"
+      raise Mimir.Pricing.InvalidConfigError,
+        message:
+          "Mimir.Pricing: model #{inspect(model)} has an invalid #{field} rate: " <>
+            "#{inspect(rate)} (expected a non-negative integer)"
     end
 
     rate

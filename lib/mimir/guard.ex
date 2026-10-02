@@ -18,8 +18,8 @@ defmodule Mimir.Guard do
   Guards never raise mid-run: on a pricing-table miss the cost check degrades
   to whatever caps remain and a `[:mimir, :guard, :pricing_miss]` telemetry
   warning is emitted (once per process per model). A misconfigured pricing
-  entry — `Mimir.Pricing` raising `ArgumentError` for an invalid rate or an
-  unknown key — degrades the same way: the cost check halts with
+  entry — `Mimir.Pricing` raising `Mimir.Pricing.InvalidConfigError` for an
+  invalid rate or an unknown key — degrades the same way: the cost check halts with
   `{:invalid_pricing, %{model:, usage:, message:}}` rather than letting the
   raise propagate, so a bad config entry is still loud without breaking the
   "never raise mid-run" guarantee.
@@ -113,15 +113,19 @@ defmodule Mimir.Guard do
     end
   end
 
-  # Mimir.Pricing raises ArgumentError for a misconfigured entry (an invalid
-  # rate, an unknown key) — loud by design, since a silently-wrong price is
-  # worse than a crash almost everywhere else. A guard runs mid-session,
-  # though, so a raise here would violate "never raise mid-run"; this turns
-  # it into a result the guard can halt on instead.
+  # Mimir.Pricing raises Mimir.Pricing.InvalidConfigError for a misconfigured
+  # entry (an invalid rate, an unknown key) — loud by design, since a
+  # silently-wrong price is worse than a crash almost everywhere else. A
+  # guard runs mid-session, though, so a raise here would violate "never
+  # raise mid-run"; this turns it into a result the guard can halt on
+  # instead. Rescuing this exception specifically, not ArgumentError, means
+  # an unrelated ArgumentError from the same call — a packaging bug, a BIF
+  # badarg, anything that is not a pricing-config problem — still raises
+  # instead of being misreported as :invalid_pricing.
   defp price(model, usage) do
     {:ok, Mimir.Pricing.cost_microdollars(model, usage)}
   rescue
-    e in ArgumentError -> {:error, Exception.message(e)}
+    e in Mimir.Pricing.InvalidConfigError -> {:error, Exception.message(e)}
   end
 
   # RMA 0.5.0 hands turn_guard a %ReqManagedAgents.Usage{} STRUCT, not a plain map — so
