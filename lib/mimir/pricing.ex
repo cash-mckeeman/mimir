@@ -2,30 +2,33 @@ defmodule Mimir.Pricing do
   @moduledoc """
   Token usage -> integer microdollar cost.
 
-  Lookup order for a `"provider:model_id"` key:
+  Rates are integer µ$ per million tokens: `input:`, `output:`, and optional
+  `cache_read:` and `cache_write:`. Each rate resolves on its own for a
+  `"provider:model_id"` key:
 
-    1. Config table (`:mimir, :pricing`) keyed `"provider:model_id"` — wins when present.
-    2. Vendored LiteLLM pricing DB fallback (loaded once, memoized in `:persistent_term`):
-       - try bare `model_id` key in the DB
-       - then `"<provider>/<model_id>"`
-    3. Miss → zero (never crashes metering).
+    1. the config table (`:mimir, :pricing`) entry, when it sets that rate;
+    2. the vendored LiteLLM pricing DB (loaded once, memoized in `:persistent_term`),
+       trying the bare `model_id`, then `"<provider>/<model_id>"`;
+    3. zero for `input` and `output`, so an unpriced model never crashes metering.
 
-  Rates are integer µ$ per million tokens: `input:` and `output:`, plus optional
-  `cache_read:` and `cache_write:`. The vendored DB stores the same shape after converting
-  LiteLLM's USD/token floats at load time: `round(cost * 1.0e12)` → integer µ$/M tokens.
-  Integer math only on the hot path.
+  A config entry that sets only `input:` and `output:` (a negotiated rate, say) still
+  takes the vendored DB's list cache rates unless it sets its own.
 
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
-  cache rates. A cache rate that is missing, or zero in the vendored DB, prices those
-  tokens at the model's input rate instead, never as free, and emits
-  `[:mimir, :pricing, :no_cache_rate]` with the token counts so priced as measurements and
-  `%{model: model}` as metadata. It fires only when such tokens are present.
+  cache rates. With no cache rate from either source they price at the input rate, never
+  as free, and `[:mimir, :pricing, :no_cache_rate]` fires, only when such tokens are
+  present. Its measurements are the token counts priced that way; its metadata is
+  `%{model: model}`. A zero cache cost in the vendored DB counts as no rate.
 
-  Refresh the vendored DB with `mix mimir.pricing.refresh`. The `:mimir, :pricing_db_path`
-  config key overrides the default priv path (useful in tests).
+  The vendored DB is converted from LiteLLM's USD/token floats at load time:
+  `round(cost * 1.0e12)` → integer µ$/M tokens, so the hot path is integer math only.
+  Refresh it with `mix mimir.pricing.refresh`; `:mimir, :pricing_db_path` overrides its
+  path (useful in tests).
   """
 
   require Logger
+
+  @rate_fields [:input, :output, :cache_read, :cache_write]
 
   @typedoc "Integer µ$ per million tokens: a config-table entry, or a vendored DB entry."
   @type rates :: %{
@@ -44,8 +47,8 @@ defmodule Mimir.Pricing do
         }
 
   @doc """
-  Cost of `usage` against `model`'s rate, in integer microdollars. Looks up
-  the rate via the lookup order documented above; an unpriced model costs 0.
+  Cost of `usage` against `model`'s rates, in integer microdollars. Resolves
+  the rates as documented above; an unpriced model costs 0.
   """
   @spec cost_microdollars(String.t(), usage()) :: non_neg_integer()
   def cost_microdollars(model, usage) when is_binary(model) and is_map(usage) do
@@ -77,19 +80,27 @@ defmodule Mimir.Pricing do
     :ok
   end
 
-  # (1) config table wins; (2) vendored DB fallback; (3) zero default.
+  # Per field: config entry, then vendored DB; cache rates may stay absent.
   @spec price(String.t()) :: rates()
   defp price(model) do
-    config_table = Application.get_env(:mimir, :pricing, %{})
+    configured =
+      :mimir
+      |> Application.get_env(:pricing, %{})
+      |> Map.get(model, %{})
+      |> configured_rates()
 
-    case Map.get(config_table, model) do
-      %{input: _, output: _} = rate ->
-        rate
-
-      _ ->
-        vendored_price(model) || %{input: 0, output: 0}
-    end
+    %{input: 0, output: 0}
+    |> Map.merge(vendored_price(model) || %{})
+    |> Map.merge(configured)
   end
+
+  defp configured_rates(entry) when is_map(entry) do
+    Map.filter(entry, fn {field, rate} ->
+      field in @rate_fields and is_integer(rate) and rate >= 0
+    end)
+  end
+
+  defp configured_rates(_entry), do: %{}
 
   # Vendored DB lookup: try bare model_id, then "provider/model_id".
   defp vendored_price(model) do

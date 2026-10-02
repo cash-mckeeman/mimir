@@ -56,7 +56,7 @@ defmodule Mimir.PricingTest do
 
   # ── (a) config table wins over vendored DB ───────────────────────────────────
 
-  test "(a) config table entry wins when present, vendored DB not consulted" do
+  test "(a) config table rate wins over the vendored DB's" do
     Application.put_env(:mimir, :pricing_db_path, @fixture_path)
     # "sample-model-a" is in the fixture with 3_000_000 µ$/M input,
     # but we set a config override with a clearly different rate.
@@ -261,6 +261,42 @@ defmodule Mimir.PricingTest do
       usage = %{input_tokens: 1_000, output_tokens: 0, cache_read_input_tokens: 0}
       assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 3_000
       refute_received {:no_cache_rate, _, _}
+    end
+  end
+
+  describe "per-field rate resolution" do
+    test "a config entry without cache rates takes the vendored DB's, not its input rate" do
+      # Real vendored DB: $0.30/M. Red if the config entry shadows it: 3_000_000, the input rate.
+      Application.put_env(:mimir, :pricing, %{
+        "anthropic:claude-sonnet-4-6" => %{input: 3_000_000, output: 15_000_000}
+      })
+
+      usage = %{cache_read_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("anthropic:claude-sonnet-4-6", usage) == 300_000
+    end
+
+    test "a config cache rate wins over the vendored DB's, field by field" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:sample-model-e" => %{input: 3_000_000, output: 15_000_000, cache_read: 100_000}
+      })
+
+      # cache read from config (100_000 µ$/M); cache write from the DB (3_750_000 µ$/M)
+      usage = %{cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:sample-model-e", usage) == 100_000 + 3_750_000
+    end
+
+    test "a config entry missing input or output takes it from the vendored DB" do
+      Application.put_env(:mimir, :pricing_db_path, @fixture_path)
+
+      Application.put_env(:mimir, :pricing, %{
+        "provider:sample-model-a" => %{input: 999_000}
+      })
+
+      # input from config; output from the DB (15_000_000 µ$/M)
+      usage = %{input_tokens: 1_000_000, output_tokens: 1_000_000}
+      assert Pricing.cost_microdollars("provider:sample-model-a", usage) == 999_000 + 15_000_000
     end
   end
 
