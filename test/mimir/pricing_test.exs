@@ -428,6 +428,10 @@ defmodule Mimir.PricingTest do
     end
   end
 
+  test "vendored records with changed schemas retain compatible token rates" do
+    assert_vendored_rates("pricing_compatible_models.json")
+  end
+
   defp assert_vendored_rates(fixture) do
     entries =
       Path.join([__DIR__, "..", "support", "fixtures", fixture])

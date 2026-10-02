@@ -9,7 +9,10 @@ pricing any of those three got `0` from `Mimir.Pricing.cost_microdollars/2`
 before this release. Records removed upstream retain their last known vendored
 rates so previously supported model IDs continue to price historical usage.
 These retained rates are compatibility data, not a claim of current provider
-availability or prices. No rate changed for any previously-priced model
+availability or prices. Eight records whose upstream schemas no longer match
+the token-price loader also retain their previous compatible token rates;
+image-output-token fields are not interpreted as text-output-token prices.
+No rate changed for any previously-priced model
 checked against the refresh (`claude-sonnet-4-6`, `gpt-4o`,
 `claude-haiku-4-5`); upstream only added metadata fields around them.
 
