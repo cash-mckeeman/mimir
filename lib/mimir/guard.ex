@@ -15,14 +15,16 @@ defmodule Mimir.Guard do
   as input/output, because cost is cost. `:max_total_tokens` stays input +
   output only.
 
-  Guards never raise mid-run: on a pricing-table miss the cost check degrades
-  to whatever caps remain and a `[:mimir, :guard, :pricing_miss]` telemetry
-  warning is emitted (once per process per model). A misconfigured pricing
-  entry — `Mimir.Pricing` raising `Mimir.Pricing.InvalidConfigError` for an
-  invalid rate or an unknown key — degrades the same way: the cost check halts with
-  `{:invalid_pricing, %{model:, usage:, message:}}` rather than letting the
-  raise propagate, so a bad config entry is still loud without breaking the
-  "never raise mid-run" guarantee.
+  Guards never raise mid-run, but the two cost-check failures aren't the
+  same outcome: a pricing-table miss (no rate anywhere for the model)
+  degrades to `:cont`, leaving whatever caps remain to decide, and emits a
+  `[:mimir, :guard, :pricing_miss]` telemetry warning once per process per
+  model. A misconfigured pricing entry — `Mimir.Pricing` raising
+  `Mimir.Pricing.InvalidConfigError` for an invalid rate or an unknown key
+  — halts instead, with `{:invalid_pricing, %{model:, usage:, message:}}`,
+  rather than letting the raise propagate: a bad config entry is a real
+  problem the caller should stop and look at, not one the guard can
+  shrug off the way it does a merely-unpriced model.
   """
 
   @type turn_state :: %{
