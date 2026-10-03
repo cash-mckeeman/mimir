@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.1 (2026-10-02)
+
+Refreshes the vendored LiteLLM pricing DB (`mix mimir.pricing.refresh`,
+fetched 2026-10-02). It now prices `claude-opus-5-5`, `claude-sonnet-5-5`
+and `claude-fable-5-1`, all absent from 0.6.0's vendored copy — a caller
+pricing any of those three got `0` from `Mimir.Pricing.cost_microdollars/2`
+before this release. Records removed upstream retain their last known vendored
+rates so previously supported model IDs continue to price historical usage.
+These retained rates are compatibility data, not a claim of current provider
+availability or prices. Eight records whose upstream schemas no longer match
+the token-price loader also retain their previous compatible token rates;
+image-output-token fields are not interpreted as text-output-token prices.
+The compatible refreshed records update 287 previously priced rate maps,
+including 169 with input/output changes and 118 with cache-only changes.
+The three new Claude IDs have regression checks for cache-read and cache-write
+rates as well as positive input/output prices.
+
+No rate changed for any previously-priced model
+checked against the refresh (`claude-sonnet-4-6`, `gpt-4o`,
+`claude-haiku-4-5`); upstream changed non-billing metadata around them.
+
 ## 0.6.0 (2026-10-02)
 
 Cache-aware pricing. `Mimir.Pricing.cost_microdollars/2` prices cache read and
