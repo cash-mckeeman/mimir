@@ -1,15 +1,21 @@
 defmodule MimirOrchestration.MixProject do
   use Mix.Project
 
+  @app :mimir_orchestration
   @version "0.7.0-dev"
+  @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do
     [
-      app: :mimir_orchestration,
+      app: @app,
       version: @version,
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      source_url: @source_url,
+      description: "Routing and budget contracts for agent workflows",
+      package: package(),
+      docs: docs(),
       dialyzer: dialyzer()
     ]
   end
@@ -32,7 +38,8 @@ defmodule MimirOrchestration.MixProject do
       {:jido, "~> 2.2", optional: true},
       {:req_llm, "~> 1.10", optional: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
 
@@ -71,5 +78,31 @@ defmodule MimirOrchestration.MixProject do
       # under MIX_ENV=test; :mix covers any Mix.* calls in tooling.
       plt_add_apps: [:mix, :ex_unit]
     ]
+  end
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      source_url: @source_url,
+      source_ref: source_ref(),
+      source_url_pattern: "#{@source_url}/blob/#{source_ref()}/#{@app}/%{path}#L%{line}"
+    ]
+  end
+
+  # The tag that publishes this version: vX.Y.0 for a lockstep minor,
+  # <app>-vX.Y.Z for a one-package patch.
+  defp source_ref do
+    case Version.parse!(@version) do
+      %Version{patch: 0} -> "v#{@version}"
+      _ -> "#{@app}-v#{@version}"
+    end
   end
 end
