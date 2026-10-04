@@ -93,6 +93,79 @@ defmodule Mimir.IngestTest do
     refute Map.has_key?(e.raw, "type")
   end
 
+  test "tool results retain the call id and provider error payload without a name" do
+    ctx =
+      Mimir.Ingest.new(
+        request_id: "result_req",
+        decision_id: "decision",
+        metadata: %{"workflow_id" => "wf", "step_id" => "step"}
+      )
+
+    call = %{"type" => "tool_use", "id" => "t1", "name" => "echo"}
+
+    result = %{
+      "type" => "tool_result",
+      "tool_use_id" => "t1",
+      "content" => [%{"type" => "text", "text" => "permission denied"}],
+      "is_error" => true
+    }
+
+    assert :ok = Mimir.Ingest.handle_event(ctx, call)
+    assert :ok = Mimir.Ingest.handle_event(ctx, result)
+
+    assert [
+             %Event{type: :tool_call, seq: 1, tool: %{id: "t1", name: "echo"}},
+             %Event{type: :tool_result, seq: 2, tool: %{id: "t1", name: nil}} = ev
+           ] = Mimir.TurnEvents.take("result_req")
+
+    assert ev.request_id == "result_req"
+    assert ev.workflow_id == "wf"
+    assert ev.step_id == "step"
+
+    assert ev.raw == %{
+             "raw_type" => "tool_result",
+             "tool_use_id" => "t1",
+             "content" => [%{"type" => "text", "text" => "permission denied"}],
+             "is_error" => true,
+             "decision_id" => "decision"
+           }
+  end
+
+  test "result identity wins over a name and usage fields for an unfamiliar provider type" do
+    ctx = Mimir.Ingest.new(request_id: "overlap_req")
+
+    frame = %{
+      "type" => "provider.future_result",
+      "tool_use_id" => "t1",
+      "id" => "frame_id",
+      "name" => "echo",
+      "input_tokens" => 2,
+      "output_tokens" => 3,
+      "output" => %{"answer" => 42}
+    }
+
+    assert :ok = Mimir.Ingest.handle_event(ctx, frame)
+
+    assert [%Event{type: :tool_result, tool: %{id: "t1", name: "echo"}, usage: nil} = ev] =
+             Mimir.TurnEvents.take("overlap_req")
+
+    assert ev.raw == frame |> Map.delete("type") |> Map.put("raw_type", "provider.future_result")
+  end
+
+  test "malformed optional result names degrade without changing raw" do
+    ctx = Mimir.Ingest.new(request_id: "result_names")
+
+    for name <- [nil, 17, %{"unexpected" => true}] do
+      frame = %{"type" => "tool_result", "tool_use_id" => "t1", "name" => name}
+      assert :ok = Mimir.Ingest.handle_event(ctx, frame)
+
+      assert [%Event{type: :tool_result, tool: %{id: "t1", name: nil}, raw: raw}] =
+               Mimir.TurnEvents.take("result_names")
+
+      assert raw["name"] == name
+    end
+  end
+
   test "genuinely unrecognized frames are dropped, never given a placeholder type, and counted" do
     test_pid = self()
     handler_id = "ingest-unknown-#{System.unique_integer()}"
@@ -110,10 +183,24 @@ defmodule Mimir.IngestTest do
 
     ctx = Mimir.Ingest.new(request_id: "req_7")
 
-    assert :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "some_unrecognized_frame"})
+    frames = [
+      %{"type" => "some_unrecognized_frame"},
+      %{"type" => "tool_result", "content" => "missing id"},
+      %{"type" => "tool_result", "tool_use_id" => nil},
+      %{"type" => "tool_result", "tool_use_id" => 7}
+    ]
 
-    assert_receive {[:mimir, :ingest, :unknown_event], %{count: 1},
-                    %{raw_type: "some_unrecognized_frame"}}
+    for frame <- frames do
+      assert :ok = Mimir.Ingest.handle_event(ctx, frame)
+      raw_type = frame["type"]
+      assert_receive {[:mimir, :ingest, :unknown_event], %{count: 1}, %{raw_type: ^raw_type}}
+    end
+
+    assert :ok =
+             Mimir.Ingest.handle_event(ctx, %{"type" => "tool_result", "tool_use_id" => "t1"})
+
+    assert [%Event{type: :tool_result}] = Mimir.TurnEvents.take("req_7")
+    refute_receive {[:mimir, :ingest, :unknown_event], _, _}
 
     assert Mimir.TurnEvents.take("req_7") == []
   end
@@ -135,6 +222,8 @@ defmodule Mimir.IngestTest do
 
     assert :ok = Mimir.Ingest.handle_event(ctx, %{"no" => "type"})
     assert :ok = Mimir.Ingest.handle_event(ctx, %{"type" => :not_a_binary})
+    assert :ok = Mimir.Ingest.handle_event(ctx, %{"tool_use_id" => "t1"})
+    assert :ok = Mimir.Ingest.handle_event(ctx, %{"type" => nil, "tool_use_id" => "t1"})
     assert Mimir.TurnEvents.take("req_4") == []
   end
 end

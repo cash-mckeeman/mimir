@@ -50,4 +50,30 @@ defmodule Mimir.TurnEvents.RoundTripTest do
     assert [taken] = TurnEvents.take(rid)
     assert {:ok, ^taken} = taken |> Event.to_wire() |> Event.from_wire()
   end
+
+  test "call and result survive buffer and CloudEvent JSON boundaries in order" do
+    rid = "result_rid_#{System.unique_integer([:positive])}"
+    {:ok, call} = Event.llm(:tool_call, request_id: rid, tool: %{id: "t1", name: "echo"})
+
+    assert {:ok, result} =
+             Event.llm(:tool_result,
+               request_id: rid,
+               tool: %{id: "t1", name: nil},
+               raw: %{"content" => "done"}
+             )
+
+    :ok = TurnEvents.append(rid, call)
+    :ok = TurnEvents.append(rid, result)
+
+    assert [
+             %Event{type: :tool_call, seq: 1},
+             %Event{type: :tool_result, seq: 2, tool: %{id: "t1", name: nil}} = taken
+           ] = TurnEvents.take(rid)
+
+    assert {:ok, cloud_event} = Mimir.CloudEvent.from_event(taken, id: "result", source: "test")
+    wire = cloud_event |> Mimir.CloudEvent.to_wire() |> Jason.encode!() |> Jason.decode!()
+    assert wire["type"] == "ai.bizinsights.mimir.llm.tool_result"
+    assert {:ok, ^taken} = Event.from_wire(wire["data"])
+    assert TurnEvents.take(rid) == []
+  end
 end

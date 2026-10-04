@@ -57,6 +57,15 @@ defmodule Mimir.Event.OTelTest do
       {:ok, ev} = Event.llm(:usage, seq: 0, ts: 0, usage: %{input_tokens: 1, output_tokens: 1})
       assert OTel.render(ev).type == "llm"
     end
+
+    test "tool_result exports raw without reclassifying a named result as a call" do
+      raw = %{"tool_use_id" => "t1", "is_error" => true, "content" => "denied"}
+
+      for name <- ["echo", nil] do
+        assert {:ok, ev} = Event.llm(:tool_result, tool: %{id: "t1", name: name}, raw: raw)
+        assert OTel.render(ev) == %{type: "llm", attributes: raw}
+      end
+    end
   end
 
   describe "agent domain — OTel GenAI agent conventions" do

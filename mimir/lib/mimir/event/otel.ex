@@ -23,14 +23,9 @@ defmodule Mimir.Event.OTel do
   freeze commit and `test/mimir/event/otel_test.exs`, which assert
   `render/1`'s output byte-equal against those frozen fixtures.
 
-  `llm` types with no dedicated historical builder (`request_start`,
-  `request_stop`, `turn_complete`, `exception`) had no fixed attribute shape
-  before this vocabulary existed — the old `Mimir.Ingest` module's private
-  `classify` step forwarded whatever provider-shaped map arrived verbatim as
-  the event's `gen_ai` payload. This mapper preserves that posture: it
-  renders the event's `raw` map (string-keying any atom keys), so a
-  collector that stashes provider-native `gen_ai.*` attributes in `raw` gets
-  them exported unchanged.
+  `request_start`, `request_stop`, `tool_result`, `turn_complete` and
+  `exception` export `raw` with stringified keys. Tool results retain their
+  provider payload instead of the call's `gen_ai.tool.*` attribute shape.
 
   ## `agent` domain — OTel GenAI *agent* conventions
 
