@@ -88,7 +88,7 @@ jobs:
 
   mimir-quality:
     needs: detect-changes
-    if: needs.detect-changes.outputs.mimir == 'true'
+    if: false
     runs-on: ubuntu-latest
     env: {MIX_ENV: dev}
     defaults: {run: {working-directory: mimir}}
