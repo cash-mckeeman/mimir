@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+Dependency-direction tests guard the declared dependency sets and module references in `lib/`.
+
 ## 0.6.1 (2026-10-02)
 
 Refreshes the vendored LiteLLM pricing DB (`mix mimir.pricing.refresh`,

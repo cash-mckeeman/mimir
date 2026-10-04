@@ -130,13 +130,8 @@ defmodule Mimir.Guard do
     e in Mimir.Pricing.InvalidConfigError -> {:error, Exception.message(e)}
   end
 
-  # RMA 0.5.0 hands turn_guard a %ReqManagedAgents.Usage{} STRUCT, not a plain map — so
-  # read with Map.get, never bracket access. `usage[:k]` / `usage["k"]` raise on a struct
-  # (no Access behaviour), which would violate "never raises mid-run". Map.get reads a
-  # struct AND a plain atom- or string-keyed map, so injected / mimir-less callers work.
-  # A non-map usage, or a non-integer token value, degrades to 0 rather than raising, so
-  # the "never raises mid-run" guarantee holds for any caller — not only contract-shaped
-  # input (an integer-valued %Usage{} struct or map).
+  # Map.get accepts structs and atom- or string-keyed maps without Access.
+  # Invalid usage or token counts contribute zero rather than raising mid-session.
   defp normalize_usage(usage) when is_map(usage) do
     %{
       input_tokens: as_count(Map.get(usage, :input_tokens) || Map.get(usage, "input_tokens")),
