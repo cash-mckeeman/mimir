@@ -1,0 +1,22 @@
+name: beam
+description: Set up Elixir and OTP, and restore one package's deps and _build.
+inputs:
+  package: {description: Package directory, required: true}
+  elixir: {description: Elixir version, required: true}
+  otp: {description: OTP version, required: true}
+  cache-key: {description: Job or leg name, required: false, default: test}
+runs:
+  using: composite
+  steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ inputs.elixir }}
+        otp-version: ${{ inputs.otp }}
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ${{ inputs.package }}/deps
+          ${{ inputs.package }}/_build
+        key: mix-${{ runner.os }}-${{ inputs.package }}-${{ inputs.cache-key }}-${{ inputs.otp }}-${{ inputs.elixir }}-${{ hashFiles(format('{0}/mix.lock', inputs.package)) }}
+        restore-keys: |
+          mix-${{ runner.os }}-${{ inputs.package }}-${{ inputs.cache-key }}-${{ inputs.otp }}-${{ inputs.elixir }}-

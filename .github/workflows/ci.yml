@@ -8,97 +8,264 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   MIX_ENV: test
 
 jobs:
-  test:
-    name: test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
+  detect-changes:
     runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.detect.outputs.ok }}
+      mimir: ${{ steps.detect.outputs.mimir }}
+      workflows: ${{ steps.detect.outputs.workflows }}
+      orchestration: ${{ steps.detect.outputs.orchestration }}
+      analytics: ${{ steps.detect.outputs.analytics }}
+      integration: ${{ steps.detect.outputs.integration }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD | bash .github/scripts/detect_changes.sh >> "$GITHUB_OUTPUT"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            bash .github/scripts/detect_changes.sh --all >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only "$BEFORE" "$GITHUB_SHA" | bash .github/scripts/detect_changes.sh >> "$GITHUB_OUTPUT"
+          fi
+
+  repo-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with: {elixir-version: "1.20", otp-version: "29"}
+      - name: Script tests
+        run: for t in .github/scripts/test/*_test.sh; do bash "$t" || exit 1; done
+      - name: Every job is gated by ci-ok
+        run: |
+          diff <(yq '.jobs | keys | .[]' .github/workflows/ci.yml | grep -vx ci-ok | sort) \
+               <(yq '.jobs."ci-ok".needs[]' .github/workflows/ci.yml | sort)
+      - name: Each package carries the root LICENSE
+        run: for p in mimir mimir_workflows mimir_orchestration mimir_analytics; do cmp LICENSE "$p/LICENSE" || exit 1; done
+      - name: The publish order names publishable packages
+        run: |
+          order="$(mix publish_order)"
+          [ -n "$order" ] || { echo "mix publish_order printed nothing"; exit 1; }
+          while read -r p; do
+            if ! [[ "$p" =~ ^[a-z_]+$ ]] || [ ! -f "$p/mix.exs" ] || [ "$p" = integration ]; then echo "bad publish entry: '$p'"; exit 1; fi
+          done <<<"$order"
+
+  mimir-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mimir == 'true'
+    name: mimir test (${{ matrix.elixir }}/${{ matrix.otp }})
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir}}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Floor claimed by mix.exs (`elixir: "~> 1.18"`).
-          - elixir: "1.18"
-            otp: "27"
-          # Latest: lint-class steps run only here — older compilers emit
-          # warnings that can't be fixed without dropping the floor.
-          - elixir: "1.20"
-            otp: "29"
-            lint: true
+          - {elixir: "1.18", otp: "27"}
+          - {elixir: "1.20", otp: "29", lint: true}
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: ${{ matrix.elixir }}
-          otp-version: ${{ matrix.otp }}
-      - uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: mix-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            mix-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-
+      - uses: ./.github/actions/beam
+        with: {package: mimir, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
       - run: mix deps.get
       - run: mix deps.unlock --check-unused
       - run: mix compile --warnings-as-errors
-        if: ${{ matrix.lint }}
       - run: mix test
       - run: mix mimir.smoke
 
-  quality:
-    name: quality (format, credo, docs, package)
+  mimir-quality:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mimir == 'true'
     runs-on: ubuntu-latest
-    env:
-      # ex_doc is `only: :dev` — `mix docs` doesn't exist under MIX_ENV=test.
-      MIX_ENV: dev
+    env: {MIX_ENV: dev}
+    defaults: {run: {working-directory: mimir}}
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: "1.20"
-          otp-version: "29"
+      - uses: ./.github/actions/beam
+        with: {package: mimir, elixir: "1.20", otp: "29", cache-key: quality}
       - uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
-          key: mix-quality-${{ runner.os }}-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            mix-quality-${{ runner.os }}-
+          path: mimir/priv/plts
+          key: plt-${{ runner.os }}-mimir-29-1.20-${{ hashFiles('mimir/mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-mimir-29-1.20-
       - run: mix deps.get
       - run: mix format --check-formatted
       - run: mix credo --strict
       - run: mix hex.audit
       - run: mix docs --warnings-as-errors
-      - run: mix hex.build
+      - run: mix dialyzer --format github
+        env: {MIX_ENV: test}
+      - run: bash ../.github/scripts/publishability.sh mimir
 
-  dialyzer:
-    name: dialyzer
+  workflows-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workflows == 'true'
+    name: mimir_workflows test (${{ matrix.elixir }}/${{ matrix.otp }})
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir_workflows}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {elixir: "1.18", otp: "27"}
+          - {elixir: "1.20", otp: "29", lint: true}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_workflows, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+  workflows-quality:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    env: {MIX_ENV: dev}
+    defaults: {run: {working-directory: mimir_workflows}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_workflows, elixir: "1.20", otp: "29", cache-key: quality}
+      - uses: actions/cache@v4
+        with:
+          path: mimir_workflows/priv/plts
+          key: plt-${{ runner.os }}-mimir_workflows-29-1.20-${{ hashFiles('mimir_workflows/mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-mimir_workflows-29-1.20-
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix credo --strict
+      - run: mix hex.audit
+      - run: mix docs --warnings-as-errors
+      - run: mix dialyzer --format github
+        env: {MIX_ENV: test}
+      - run: bash ../.github/scripts/publishability.sh mimir_workflows
+
+  orchestration-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.orchestration == 'true'
+    name: mimir_orchestration test (${{ matrix.elixir }}/${{ matrix.otp }})
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir_orchestration}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {elixir: "1.20", otp: "28"}
+          - {elixir: "1.20", otp: "29", lint: true}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_orchestration, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
+      - name: mix.lock holds no sibling and no git dependency
+        run: |
+          if grep -qE '^  "(mimir|mimir_workflows)":' mix.lock; then echo "a sibling is locked; path deps are never locked"; exit 1; fi
+          if grep -qF ':git,' mix.lock; then echo "a git dependency is locked"; exit 1; fi
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+  orchestration-quality:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.orchestration == 'true'
+    runs-on: ubuntu-latest
+    env: {MIX_ENV: dev}
+    defaults: {run: {working-directory: mimir_orchestration}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: quality}
+      - uses: actions/cache@v4
+        with:
+          path: mimir_orchestration/priv/plts
+          key: plt-${{ runner.os }}-mimir_orchestration-29-1.20-${{ hashFiles('mimir_orchestration/mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-mimir_orchestration-29-1.20-
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix credo --strict
+      - run: mix hex.audit
+      - run: mix docs --warnings-as-errors
+      - run: mix dialyzer --format github
+        env: {MIX_ENV: test}
+      - run: bash ../.github/scripts/publishability.sh mimir_orchestration
+
+  analytics-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.analytics == 'true'
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir_analytics}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {elixir: "1.18", otp: "27"}
+          - {elixir: "1.20", otp: "29", lint: true}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_analytics, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix compile --warnings-as-errors
+        if: ${{ matrix.lint }}
+      - run: mix mimir_analytics.setup
+      - run: mix test
+
+  analytics-quality:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.analytics == 'true'
+    runs-on: ubuntu-latest
+    env: {MIX_ENV: dev}
+    defaults: {run: {working-directory: mimir_analytics}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_analytics, elixir: "1.20", otp: "29", cache-key: quality}
+      - uses: actions/cache@v4
+        with:
+          path: mimir_analytics/priv/plts
+          key: plt-${{ runner.os }}-mimir_analytics-29-1.20-${{ hashFiles('mimir_analytics/mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-mimir_analytics-29-1.20-
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix credo --strict
+      - run: mix hex.audit
+      - run: mix docs --warnings-as-errors
+      - run: mix dialyzer --format github
+        env: {MIX_ENV: test}
+      - run: bash ../.github/scripts/publishability.sh mimir_analytics
+
+  ci-ok:
+    if: always()
+    needs:
+      - detect-changes
+      - repo-checks
+      - mimir-test
+      - mimir-quality
+      - workflows-test
+      - workflows-quality
+      - orchestration-test
+      - orchestration-quality
+      - analytics-test
+      - analytics-quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: "1.20"
-          otp-version: "29"
-      - uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            mix-dialyzer-${{ runner.os }}-
-      # PLTs are cached separately from deps: they change on BEAM upgrades,
-      # not on every mix.lock bump.
-      - uses: actions/cache@v4
-        with:
-          path: priv/plts
-          key: plt-${{ runner.os }}-29-1.20-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            plt-${{ runner.os }}-29-1.20-
-      - run: mix deps.get
-      - run: mix dialyzer --format github
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: printf '%s' "$NEEDS" | bash .github/scripts/ci_ok.sh

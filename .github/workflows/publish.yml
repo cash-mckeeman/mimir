@@ -1,35 +1,61 @@
-name: Publish to Hex
+name: Publish
 
-# Tag-triggered release: push a `v*` tag matching @version in mix.exs.
-# Requires the HEX_API_KEY secret (a write key scoped to the package) in the
-# `prod` environment. The suite is dependency-light and credential-free.
-
+# A pushed tag publishes: vX.Y.0 every package in `mix publish_order`, in order;
+# <package>-vX.Y.Z one package's patch. A manual dispatch is always a dry run: the
+# guard runs every check against the given tag name and commit, and nothing publishes.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "*-v*"]
+  workflow_dispatch:
+    inputs:
+      tag: {description: "Tag name to evaluate (dry run)", required: true}
+      sha: {description: "Commit the tag would name", required: true}
 
 permissions:
   contents: read
+  checks: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  guard:
     runs-on: ubuntu-latest
-    # HEX_API_KEY lives in the `prod` environment — jobs only see environment
-    # secrets when they declare the environment.
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.guard.outputs.version }}
+      packages: ${{ steps.guard.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: erlef/setup-beam@v1
+        with: {elixir-version: "1.20", otp-version: "29"}
+      - id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          SHA: ${{ inputs.sha || github.sha }}
+        run: bash .github/scripts/publish_guard.sh
+
+  publish:
+    needs: guard
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # HEX_API_KEY lives in the prod environment; only this job declares it.
     environment: prod
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: "1.20"
-          otp-version: "29"
-      - run: mix deps.get
-      - run: mix test
-        env:
-          MIX_ENV: test
-      - name: Publish
-        # No MIX_ENV override: hex.publish builds docs, and ex_doc is
-        # `only: :dev` — the docs task doesn't exist outside dev.
-        env:
+        with: {elixir-version: "1.20", otp-version: "29"}
+      - env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-        run: mix hex.publish --yes
+          VERSION: ${{ needs.guard.outputs.version }}
+          PACKAGES: ${{ needs.guard.outputs.packages }}
+        run: |
+          read -r -a packages <<< "$PACKAGES"
+          bash .github/scripts/publish.sh "$VERSION" "${packages[@]}"
