@@ -250,6 +250,23 @@ jobs:
         env: {MIX_ENV: test}
       - run: bash ../.github/scripts/publishability.sh mimir_analytics
 
+  integration-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.integration == 'true'
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: integration}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: integration, elixir: "1.20", otp: "29"}
+      - name: mix.lock holds no sibling
+        run: if grep -qE '^  "mimir(_[a-z]+)?":' mix.lock; then echo "a sibling is locked; path deps are never locked"; exit 1; fi
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix compile --warnings-as-errors
+      - run: mix mimir_analytics.setup
+      - run: mix test
+
   ci-ok:
     if: always()
     needs:
@@ -263,6 +280,7 @@ jobs:
       - orchestration-quality
       - analytics-test
       - analytics-quality
+      - integration-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
