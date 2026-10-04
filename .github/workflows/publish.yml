@@ -6,6 +6,9 @@ name: Publish to Hex
 
 on:
   push:
+    defaults:
+      run:
+        working-directory: mimir
     tags: ["v*"]
 
 permissions:
@@ -13,6 +16,9 @@ permissions:
 
 jobs:
   publish:
+    defaults:
+      run:
+        working-directory: mimir
     runs-on: ubuntu-latest
     # HEX_API_KEY lives in the `prod` environment — jobs only see environment
     # secrets when they declare the environment.

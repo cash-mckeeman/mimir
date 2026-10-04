@@ -2,6 +2,9 @@ name: CI
 
 on:
   push:
+    defaults:
+      run:
+        working-directory: mimir
     branches: [main]
   pull_request:
 
@@ -13,6 +16,9 @@ env:
 
 jobs:
   test:
+    defaults:
+      run:
+        working-directory: mimir
     name: test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
     runs-on: ubuntu-latest
     strategy:
@@ -36,9 +42,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            deps
-            _build
-          key: mix-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+            mimir/deps
+            mimir/_build
+          key: mix-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mimir/mix.lock') }}
           restore-keys: |
             mix-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-
       - run: mix deps.get
@@ -49,6 +55,9 @@ jobs:
       - run: mix mimir.smoke
 
   quality:
+    defaults:
+      run:
+        working-directory: mimir
     name: quality (format, credo, docs, package)
     runs-on: ubuntu-latest
     env:
@@ -63,9 +72,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            deps
-            _build
-          key: mix-quality-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+            mimir/deps
+            mimir/_build
+          key: mix-quality-${{ runner.os }}-${{ hashFiles('mimir/mix.lock') }}
           restore-keys: |
             mix-quality-${{ runner.os }}-
       - run: mix deps.get
@@ -76,6 +85,9 @@ jobs:
       - run: mix hex.build
 
   dialyzer:
+    defaults:
+      run:
+        working-directory: mimir
     name: dialyzer
     runs-on: ubuntu-latest
     steps:
@@ -87,9 +99,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            deps
-            _build
-          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+            mimir/deps
+            mimir/_build
+          key: mix-dialyzer-${{ runner.os }}-${{ hashFiles('mimir/mix.lock') }}
           restore-keys: |
             mix-dialyzer-${{ runner.os }}-
       # PLTs are cached separately from deps: they change on BEAM upgrades,
@@ -97,7 +109,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-29-1.20-${{ hashFiles('mix.lock') }}
+          key: plt-${{ runner.os }}-29-1.20-${{ hashFiles('mimir/mix.lock') }}
           restore-keys: |
             plt-${{ runner.os }}-29-1.20-
       - run: mix deps.get

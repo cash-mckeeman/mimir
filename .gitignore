@@ -1,0 +1,14 @@
+# Each package ignores its own build output in its own .gitignore.
+
+# The root task runner's own build output.
+/_build/
+/deps/
+
+# hygiene: ops docs live in the private control-plane repo
+docs/superpowers/
+docs/qa/
+docs/qa-runs/
+.superpowers/
+
+# jj workspaces: whole checkouts, never content
+.claude/worktrees/
