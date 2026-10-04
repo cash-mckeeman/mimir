@@ -3,10 +3,10 @@ defmodule MimirFamily.MixProject do
   use Mix.Project
 
   # Publish order. A package is published only while it is listed here.
-  @publish ~w(mimir)
+  @publish ~w(mimir mimir_workflows mimir_orchestration)
 
   # Every sibling, in dependency order. The root aliases run in each one.
-  @siblings ~w(mimir)
+  @siblings ~w(mimir mimir_workflows mimir_orchestration mimir_analytics)
 
   def project do
     [app: :mimir_family, version: "0.0.0", elixir: "~> 1.18", deps: [], aliases: aliases()]
