@@ -1,26 +1,26 @@
-defmodule MimirAnalytics.DepDirectionTest do
+defmodule MimirWorkflows.DepDirectionTest do
   @moduledoc """
   Guards declared dependencies and all module references in `lib/`, including prose.
   Dependencies scoped with `only:` are excluded from the declared sets.
   """
   use ExUnit.Case, async: true
 
-  @runtime [:duckdbex, :jason, :req]
+  @runtime [:telemetry]
   @optional []
   @forbidden [
     ~r/\bMimir\./,
-    ~r/\bMimirWorkflows\./,
     ~r/\bMimirOrchestration\./,
-    ~r/\bMimirGateway\./,
-    ~r/\bManagedAgents\./,
-    ~r/\bReqManagedAgents\./
+    ~r/\bMimirAnalytics\./,
+    ~r/\bReqManagedAgents\./,
+    ~r/\bJido/,
+    ~r/\bManagedAgents\./
   ]
 
-  test "declared runtime dependencies are exactly duckdbex, jason and req" do
+  test "declared runtime dependencies are exactly telemetry" do
     assert {runtime(), optional()} == {@runtime, @optional}
   end
 
-  test "lib/ names no other mimir package or agent runtime" do
+  test "lib/ names no other mimir package, agent runtime or host" do
     assert offenders() == []
   end
 
