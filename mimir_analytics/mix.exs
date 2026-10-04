@@ -51,11 +51,13 @@ defmodule MimirAnalytics.MixProject do
       plt_add_apps: [:mix, :ex_unit]
     ]
   end
+
   defp package do
     [
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib priv/schema.sql priv/views.sql mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
+      files:
+        ~w(lib priv/schema.sql priv/views.sql mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
     ]
   end
 
