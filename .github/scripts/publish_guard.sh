@@ -61,7 +61,7 @@ for p in $order; do
   grep -qxF "$p" <<<"$packages" || echo "not selected: $p" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
 if [ "$fail" = 0 ]; then
-  { echo "version=$version"; echo "packages=$(echo $packages)"; } >> "$out"
-  echo "guard: publish $version: $(echo $packages)"
+  { echo "version=$version"; echo "packages=$(printf '%s\n' "$packages" | paste -sd' ' -)"; } >> "$out"
+  echo "guard: publish $version: $(printf '%s\n' "$packages" | paste -sd' ' -)"
 fi
 exit "$fail"
