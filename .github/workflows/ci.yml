@@ -209,13 +209,20 @@ jobs:
     if: needs.detect-changes.outputs.analytics == 'true'
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: mimir_analytics}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {elixir: "1.18", otp: "27"}
+          - {elixir: "1.20", otp: "29", lint: true}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/beam
-        with: {package: mimir_analytics, elixir: "1.20", otp: "29"}
+        with: {package: mimir_analytics, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
       - run: mix deps.get
       - run: mix deps.unlock --check-unused
       - run: mix compile --warnings-as-errors
+        if: ${{ matrix.lint }}
       - run: mix mimir_analytics.setup
       - run: mix test
 
