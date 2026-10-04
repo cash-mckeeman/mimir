@@ -1,12 +1,13 @@
 defmodule Mimir.MixProject do
   use Mix.Project
 
+  @app :mimir
   @version "0.7.0-dev"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do
     [
-      app: :mimir,
+      app: @app,
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
@@ -58,7 +59,22 @@ defmodule Mimir.MixProject do
   end
 
   defp docs do
-    [main: "readme", extras: ["README.md", "CHANGELOG.md", "LICENSE"]]
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      source_url: @source_url,
+      source_ref: source_ref(),
+      source_url_pattern: "#{@source_url}/blob/#{source_ref()}/#{@app}/%{path}#L%{line}"
+    ]
+  end
+
+  # The tag that publishes this version: vX.Y.0 for a lockstep minor,
+  # <app>-vX.Y.Z for a one-package patch.
+  defp source_ref do
+    case Version.parse!(@version) do
+      %Version{patch: 0} -> "v#{@version}"
+      _ -> "#{@app}-v#{@version}"
+    end
   end
 
   defp dialyzer do
