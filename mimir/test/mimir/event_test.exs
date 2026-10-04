@@ -72,6 +72,40 @@ defmodule Mimir.EventTest do
   end
 
   describe "wire round-trip" do
+    test "tool results round-trip through JSON with a named or unnamed tool" do
+      for name <- ["echo", nil] do
+        raw = %{"content" => [%{"text" => "denied"}], "is_error" => true}
+
+        assert {:ok, %Event{domain: :llm, type: :tool_result} = ev} =
+                 Event.llm(:tool_result,
+                   seq: 2,
+                   ts: 3,
+                   request_id: "r1",
+                   tool: %{id: "t1", name: name},
+                   raw: raw
+                 )
+
+        wire = ev |> Event.to_wire() |> Jason.encode!() |> Jason.decode!()
+        assert wire["type"] == "tool_result"
+        assert wire["tool"] == %{"id" => "t1", "name" => name}
+        assert wire["raw"] == raw
+        assert {:ok, ^ev} = Event.from_wire(wire)
+      end
+    end
+
+    test "tool_result stays confined to the llm closed union" do
+      assert {:error, {:bad_type, :agent, :tool_result}} = Event.agent(:tool_result, [])
+      assert {:error, {:bad_type, :workflow, :tool_result}} = Event.workflow(:tool_result, [])
+
+      for domain <- ["agent", "workflow"] do
+        assert {:error, {:bad_event, {:bad_type, _, "tool_result"}}} =
+                 Event.from_wire(%{"domain" => domain, "type" => "tool_result"})
+      end
+
+      assert {:error, {:bad_event, {:bad_type, :llm, "future_result"}}} =
+               Event.from_wire(%{"domain" => "llm", "type" => "future_result"})
+    end
+
     test "to_wire |> from_wire is identity for each domain" do
       for {:ok, ev} <- [
             Event.llm(:tool_call,

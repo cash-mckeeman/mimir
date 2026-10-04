@@ -25,6 +25,10 @@ defmodule Mimir.Ingest do
   Raw frames are matched by **structure**, not by an open-ended list of
   provider type strings:
 
+    * A map carrying a binary `"tool_use_id"` promotes to
+      `Event.llm(:tool_result, tool: %{id: ..., name: ...}, ...)` before named
+      tool calls. An absent or non-binary name becomes `nil`; the provider's
+      result payload remains in `raw`.
     * A map carrying a string `"name"` (the tool-use family — `tool_use`,
       `custom_tool_use`, `server_tool_use`, `mcp_tool_use`, ... — whatever the
       provider calls it, id+name is the shape) promotes to
@@ -135,6 +139,12 @@ defmodule Mimir.Ingest do
 
   defp classify(%{"type" => "rma.text_delta", "text" => text}),
     do: {:turn_complete, "text_delta", %{"output_text_delta" => text}, []}
+
+  defp classify(%{"type" => type, "tool_use_id" => id} = e)
+       when is_binary(type) and is_binary(id) do
+    name = if is_binary(e["name"]), do: e["name"], else: nil
+    {:tool_result, type, Map.delete(e, "type"), [tool: %{id: id, name: name}]}
+  end
 
   defp classify(%{"type" => type, "name" => name} = e)
        when is_binary(type) and is_binary(name) do

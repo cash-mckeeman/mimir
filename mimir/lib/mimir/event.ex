@@ -97,6 +97,7 @@ defmodule Mimir.Event do
           | :request_stop
           | :reasoning
           | :tool_call
+          | :tool_result
           | :usage
           | :turn_complete
           | :exception
@@ -119,12 +120,12 @@ defmodule Mimir.Event do
           step_id: String.t() | nil,
           session_id: String.t() | nil,
           usage: %{input_tokens: non_neg_integer(), output_tokens: non_neg_integer()} | nil,
-          tool: %{id: String.t() | nil, name: String.t()} | nil,
+          tool: %{id: String.t() | nil, name: String.t() | nil} | nil,
           raw: map(),
           path: [String.t()]
         }
 
-  @llm_types ~w(request_start request_stop reasoning tool_call usage turn_complete exception)a
+  @llm_types ~w(request_start request_stop reasoning tool_call tool_result usage turn_complete exception)a
   @agent_types ~w(session_open session_reattach turn_start turn_end terminal error)a
   @workflow_types ~w(step_start step_stop step_exception)a
 
