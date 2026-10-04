@@ -79,6 +79,7 @@ defmodule MimirOrchestration.MixProject do
       plt_add_apps: [:mix, :ex_unit]
     ]
   end
+
   defp package do
     [
       licenses: ["Apache-2.0"],
