@@ -33,6 +33,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
+          exit 1
           set -euo pipefail
           if [ "$EVENT" = pull_request ]; then
             git diff --name-only HEAD^1 HEAD | bash .github/scripts/detect_changes.sh >> "$GITHUB_OUTPUT"
