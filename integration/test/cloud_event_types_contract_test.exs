@@ -2,6 +2,9 @@ defmodule Integration.CloudEventTypesContractTest do
   @moduledoc """
   Guards envelope recognition across lifecycle and record families; analytics
   identifies CloudEvents by their structure rather than their type strings.
+  Each envelope's type reaching `events_raw` unchanged proves transport, not the
+  type strings themselves; the routing-decision contract pins the one string
+  analytics hard-codes.
   """
   use ExUnit.Case, async: true
 
