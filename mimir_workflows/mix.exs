@@ -19,7 +19,11 @@ defmodule MimirWorkflows.MixProject do
           "declared-as-data DAGs, compile-time validation passes, phased parallel execution.",
       package: package(),
       docs: docs(),
-      dialyzer: [plt_local_path: "priv/plts", plt_core_path: "priv/plts", plt_add_apps: [:ex_unit]]
+      dialyzer: [
+        plt_local_path: "priv/plts",
+        plt_core_path: "priv/plts",
+        plt_add_apps: [:ex_unit]
+      ]
     ]
   end
 
@@ -63,5 +67,4 @@ defmodule MimirWorkflows.MixProject do
       _ -> "#{@app}-v#{@version}"
     end
   end
-
 end
