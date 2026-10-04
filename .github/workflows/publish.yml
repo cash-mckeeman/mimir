@@ -56,4 +56,6 @@ jobs:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
           VERSION: ${{ needs.guard.outputs.version }}
           PACKAGES: ${{ needs.guard.outputs.packages }}
-        run: bash .github/scripts/publish.sh "$VERSION" $PACKAGES
+        run: |
+          read -r -a packages <<< "$PACKAGES"
+          bash .github/scripts/publish.sh "$VERSION" "${packages[@]}"
