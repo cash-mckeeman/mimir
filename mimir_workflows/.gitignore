@@ -26,3 +26,4 @@ mimir_workflows-*.tar
 # Local tool state and isolated checkouts.
 .superpowers/
 .claude/worktrees/
+/priv/plts/

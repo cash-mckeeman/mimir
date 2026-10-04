@@ -1,14 +1,16 @@
 defmodule MimirWorkflows.MixProject do
   use Mix.Project
 
+  @app :mimir_workflows
   @version "0.7.0-dev"
-  @source_url "https://github.com/cash-mckeeman/mimir_workflows"
+  @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do
     [
-      app: :mimir_workflows,
+      app: @app,
       version: @version,
       elixir: "~> 1.18",
+      source_url: @source_url,
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
@@ -17,7 +19,7 @@ defmodule MimirWorkflows.MixProject do
           "declared-as-data DAGs, compile-time validation passes, phased parallel execution.",
       package: package(),
       docs: docs(),
-      dialyzer: [plt_add_apps: [:ex_unit]]
+      dialyzer: [plt_local_path: "priv/plts", plt_core_path: "priv/plts", plt_add_apps: [:ex_unit]]
     ]
   end
 
@@ -39,16 +41,27 @@ defmodule MimirWorkflows.MixProject do
     [
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib mix.exs README.md CHANGELOG.md .formatter.exs)
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md"],
-      source_ref: "v#{@version}",
-      source_url: @source_url
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      source_url: @source_url,
+      source_ref: source_ref(),
+      source_url_pattern: "#{@source_url}/blob/#{source_ref()}/#{@app}/%{path}#L%{line}"
     ]
   end
+
+  # The tag that publishes this version: vX.Y.0 for a lockstep minor,
+  # <app>-vX.Y.Z for a one-package patch.
+  defp source_ref do
+    case Version.parse!(@version) do
+      %Version{patch: 0} -> "v#{@version}"
+      _ -> "#{@app}-v#{@version}"
+    end
+  end
+
 end
