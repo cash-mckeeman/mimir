@@ -54,7 +54,7 @@ defmodule MimirOrchestration.MixProject do
         []
 
       pin = System.get_env("MIMIR_RMA_PIN") ->
-        Version.match?(pin, @rma_range) ||
+        Version.match?(pin, @rma_range, allow_pre: false) ||
           Mix.raise("MIMIR_RMA_PIN #{pin} is outside #{@rma_range}")
 
         [{:req_managed_agents, "== " <> pin, optional: true}]
