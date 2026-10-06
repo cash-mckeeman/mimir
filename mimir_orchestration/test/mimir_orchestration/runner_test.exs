@@ -288,6 +288,27 @@ defmodule MimirOrchestration.RunnerTest do
     assert_receive {:input, {["a"], nil}}
   end
 
+  test "max_concurrency caps how many steps of a wave run at once" do
+    {:ok, counter} = Agent.start_link(fn -> %{running: 0, peak: 0} end)
+
+    run_fun = fn _t, input, _o ->
+      Agent.update(counter, fn %{running: r, peak: p} ->
+        %{running: r + 1, peak: max(p, r + 1)}
+      end)
+
+      Process.sleep(30)
+      Agent.update(counter, fn %{running: r} = state -> %{state | running: r - 1} end)
+      {:ok, input}
+    end
+
+    steps =
+      for id <- ["a", "b", "c"],
+          do: %{id: id, target: :t, input: id, descriptor: %{}, depends_on: [], route: false}
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun, max_concurrency: 1))
+    assert %{peak: 1} = Agent.get(counter, & &1)
+  end
+
   test "a failing step lets its running siblings finish before the run halts" do
     owner = self()
     handler = fn _event, _measurements, meta, _config -> send(owner, {:stopped, meta.step_id}) end
