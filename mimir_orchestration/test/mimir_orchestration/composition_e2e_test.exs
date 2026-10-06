@@ -3,15 +3,15 @@ defmodule MimirOrchestration.CompositionE2ETest do
   alias MimirOrchestration.{Compiler, Eval, Exec, NodeResult, Policy}
 
   defmodule Router do
-    @behaviour MimirOrchestration.RouterClient
+    @behaviour Mimir.RouterClient
     @impl true
     def route(req, _opts) do
-      {:ok,
-       %{
-         "placement" => %{"model" => "fleet-fast"},
-         "grant" => %{"key" => "k"},
-         "decision_id" => "d-#{req.step_id}"
-       }}
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "placement" => %{"model" => "fleet-fast"},
+        "grant" => %{"key" => "k"},
+        "decision_id" => "d-#{req.step_id}"
+      })
     end
   end
 
@@ -99,25 +99,15 @@ defmodule MimirOrchestration.CompositionE2ETest do
       flunk("set MIMIR_GATEWAY_URL (and credentials) to run the live canary")
     end
 
-    # Minimal live check: the composition routes through the real gateway.
-    # A host-grade HTTP RouterClient belongs to the consumer; this canary
-    # keeps the seam honest without shipping an HTTP client in the library.
+    # Minimal live check: the composition's flat route request reaches the real
+    # gateway, and the reply parses as a Mimir.RouteResponse.
     defmodule LiveRouter do
-      @behaviour MimirOrchestration.RouterClient
+      @behaviour Mimir.RouterClient
       @impl true
       def route(req, opts) do
         base = Keyword.fetch!(opts, :url)
         token = System.fetch_env!("MIMIR_ADMIN_TOKEN")
-
-        body =
-          Jason.encode!(%{
-            descriptor: req.descriptor,
-            workflow_id: req.workflow_id,
-            step_id: req.step_id,
-            parent_step_id: req.parent_step_id,
-            fanout_hint: req.fanout_hint,
-            path: req.path
-          })
+        body = Jason.encode!(req)
 
         request =
           {~c"#{base}/v1/route", [{~c"authorization", ~c"Bearer #{token}"}], ~c"application/json",
@@ -141,8 +131,11 @@ defmodule MimirOrchestration.CompositionE2ETest do
           end
 
         case :httpc.request(:post, request, http_opts, []) do
-          {:ok, {{_, 200, _}, _, resp}} -> {:ok, Jason.decode!(to_string(resp))}
-          other -> {:error, other}
+          {:ok, {{_, 200, _}, _, resp}} ->
+            resp |> to_string() |> Jason.decode!() |> Mimir.RouteResponse.new()
+
+          other ->
+            {:error, other}
         end
       end
     end

@@ -4,10 +4,17 @@ defmodule MimirOrchestration.Runner do
   gets a grant and a turn guard from the router; `route: false` steps skip routing.
   When a step fails, the rest of its wave finishes, then the run stops.
 
-  Options: `:run_fun` (required), `:router` (`{module, opts}`), `:workflow_id`,
-  `:max_concurrency` (default 4), `:step_timeout` (default 120 000 ms; `:infinity`
-  allowed). A step that outlives `:step_timeout` returns
-  `{:error, {:step_crashed, step_id, :timeout}}`.
+  Options: `:run_fun` (required), `:router` (`{module, opts}`, where `module`
+  implements `Mimir.RouterClient`), `:workflow_id`, `:max_concurrency` (default 4),
+  `:step_timeout` (default 120 000 ms; `:infinity` allowed). A step that outlives
+  `:step_timeout` returns `{:error, {:step_crashed, step_id, :timeout}}`.
+
+  The route request is flat: the step descriptor's fields at the top level, plus
+  `:workflow_id`, `:step_id`, `:parent_step_id`, `:fanout_hint` and `:path`. A
+  routed step fails with `{:routing_failed, reason}`, where `reason` is
+  `:no_router`, `:no_candidate`, `:no_grant` (a placement without a grant),
+  `{:invalid_route_response, other}` (an `{:ok, other}` that is not a
+  `Mimir.RouteResponse`), or the router's own error.
   """
   alias MimirOrchestration.Runner.{Ctx, WorkflowStep}
   alias MimirWorkflows.Dag

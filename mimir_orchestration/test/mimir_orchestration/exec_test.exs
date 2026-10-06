@@ -3,15 +3,15 @@ defmodule MimirOrchestration.ExecTest do
   alias MimirOrchestration.{Compiled, Compiler, Exec, NodeResult, Policy}
 
   defmodule Router do
-    @behaviour MimirOrchestration.RouterClient
+    @behaviour Mimir.RouterClient
     @impl true
     def route(req, _opts) do
-      {:ok,
-       %{
-         "placement" => %{"model" => "fleet-fast"},
-         "grant" => %{"key" => "k"},
-         "decision_id" => "d-#{req.step_id}"
-       }}
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "placement" => %{"model" => "fleet-fast"},
+        "grant" => %{"key" => "k"},
+        "decision_id" => "d-#{req.step_id}"
+      })
     end
   end
 

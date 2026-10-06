@@ -4,9 +4,9 @@ Compile and execute workflows of agent, tool and model steps. The compiler
 checks dependency order, references, registered targets and declared budgets.
 The host supplies agent references, tool callables and a router.
 
-For typed placements with grants, the runner forwards model configuration and
-a grant-derived turn guard to agent steps. Raw routing responses do not provide
-a turn guard. Agent runners own guard enforcement; model-call transports own
+A routed step dispatches only on a placement with a grant: the runner forwards
+the grant's model configuration and a grant-derived turn guard to the step.
+Agent runners own guard enforcement; model-call transports own
 their runtime budget enforcement, and `LlmStep` does not apply a local turn guard.
 Workflow and step identifiers accompany routing, agent metadata and telemetry.
 Tool steps execute locally without routing.
@@ -63,9 +63,13 @@ unconsumed, nonterminal steps without executing the workflow.
 - `MimirOrchestration.AgentRunner` runs an opaque agent reference and returns
   a `MimirOrchestration.NodeResult`. The default adapter uses `req_managed_agents`;
   hosts can provide another implementation through `:agent_runner`.
-- `MimirOrchestration.RouterClient` receives a request for each routed step.
-  Hosts implement the transport. Typed placement responses with grants produce
-  a `Mimir.Guard` turn guard; unparseable responses take the raw decision path.
+- The router is a `Mimir.RouterClient` implementation, passed as
+  `router: {module, opts}`. Each routed step sends it a flat request: the step
+  descriptor's fields at the top level, as `Mimir.Descriptor.parse/1` reads them,
+  plus `workflow_id`, `step_id`, `parent_step_id`, `fanout_hint` and `path`. A
+  `Mimir.RouteResponse` placement with a grant produces the step's model map and
+  a `Mimir.Guard` turn guard. Anything else fails the step with
+  `{:routing_failed, reason}`. `Mimir.RouterClient.HTTP` is the HTTP transport.
 - Tool registry entries are one-argument functions or `{module, function}` pairs.
   Raised tool exceptions become `{:error, {:tool_crashed, exception}}`.
 - `llm` steps use the optional `req_llm` dependency or an injected `:chat_fun`.
@@ -76,6 +80,6 @@ unconsumed, nonterminal steps without executing the workflow.
 ## Dependencies
 
 `mimir_workflows` supplies the workflow IR, compiler passes, graph operations and
-templates. `mimir` supplies typed routing responses and grant guards.
+templates. `mimir` supplies the router behaviour, typed routing responses and grant guards.
 `req_managed_agents` supplies the default agent adapter. `jido` and `req_llm`
 are optional integrations; `jason` and `telemetry` support serialization and events.
