@@ -41,8 +41,8 @@ First public release.
   `apply(m, f, [%MimirOrchestration.StepCall{} | extra_args])`. What the closure captured travels in `extra_args`.
 - Step inputs that are templates are `%MimirOrchestration.StepInput{}` data, resolved at dispatch, instead of
   closures.
-- `Runner.run/2` refuses a run whose steps or options carry a function, pid, reference or port, at any depth, with
-  `{:error, {:not_serialisable, path, kind}}`, and runs no step.
+- `Runner.run/2` refuses a run whose steps or options (all but `:executor`) carry a function, pid, reference or port,
+  at any depth, with `{:error, {:not_serialisable, path, kind}}`, and runs no step.
 - Tool callables, `Policy.allowed_tools` values and `LlmStep`'s `:chat` (was `:chat_fun`) are MFAs,
   `{module, function, extra_args}`. A tool is invoked as `apply(m, f, [input | extra_args])`; a `fun/1` or
   `{module, function}` callable returns `{:error, {:not_a_callable, callable}}`. The chat MFA receives

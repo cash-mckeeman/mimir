@@ -10,8 +10,8 @@ defmodule MimirOrchestration.Exec do
   Options: `:router`, `:workflow_id`, `:max_concurrency`, `:step_timeout` and
   `:executor` pass to `MimirOrchestration.Runner.run/2`; `:agent_runner` (default
   `MimirOrchestration.AgentRunner.RMA`), `:agent_runner_opts` and `:llm_opts`
-  configure dispatch. They cross the executor seam, so they must be plain data:
-  a function, pid, reference or port in them returns
+  configure dispatch. All but `:executor` cross the executor seam, so they must be
+  plain data: a function, pid, reference or port in them returns
   `{:error, {:not_serialisable, path, kind}}` before any step runs.
   """
   alias MimirOrchestration.{AgentRunner, Compiled, Runner, StepCall, StepInput}

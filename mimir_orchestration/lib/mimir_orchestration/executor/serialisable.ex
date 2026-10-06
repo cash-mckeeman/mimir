@@ -1,9 +1,9 @@
 defmodule MimirOrchestration.Executor.Serialisable do
   @moduledoc """
-  The payload's plain-data rule. `check/1` walks every step, the `:run` MFA's
-  `extra_args`, the router's options and the run's params, descending into lists
-  (improper ones included), tuples and maps (keys and values; a struct is walked as
-  its map), and returns the first function, pid, reference or port it meets.
+  The payload's plain-data rule. `check/1` walks every field of the payload,
+  descending into lists (improper ones included), tuples and maps (keys and values;
+  a struct is walked as its map), and returns the first function, pid, reference or
+  port it meets.
   """
   alias MimirOrchestration.Executor.Payload
 
@@ -12,15 +12,15 @@ defmodule MimirOrchestration.Executor.Serialisable do
   @doc """
   `:ok`, or `{:error, {:not_serialisable, path, kind}}`, where `path` lists the keys
   and the list and tuple indexes from the payload root to the term, for example
-  `[:run, :extra_args, 0, :owner]`. A banned map key is reported at the path of the
-  map that holds it.
+  `[:run, :extra_args, 0, :owner]`. The `:run` MFA's arguments are under
+  `[:run, :extra_args]` and the router's options under `[:router, :opts]`. A banned
+  map key is reported at the path of the map that holds it.
   """
   @spec check(Payload.t()) :: :ok | {:error, {:not_serialisable, [term()], kind()}}
-  def check(%Payload{} = payload) do
-    with :ok <- walk(payload.steps, [:steps]),
-         :ok <- walk_mfa(payload.run, [:run]),
-         :ok <- walk_router(payload.router, [:router]) do
-      walk(payload.params, [:params])
+  def check(%Payload{run: run, router: router} = payload) do
+    with :ok <- walk_mfa(run, [:run]),
+         :ok <- walk_router(router, [:router]) do
+      payload |> Map.from_struct() |> Map.drop([:run, :router]) |> walk([])
     end
   end
 

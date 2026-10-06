@@ -23,8 +23,8 @@ defmodule MimirOrchestration.Runner do
       `MimirOrchestration.Executor.InMemory`.
 
   Steps and options are plain data: a function, pid, reference or port anywhere in
-  the steps, the `:run` MFA's `extra_args`, the router's options or the params
-  returns `{:error, {:not_serialisable, path, kind}}` and no step runs (see
+  the steps or in any option but `:executor` returns
+  `{:error, {:not_serialisable, path, kind}}` and no step runs (see
   `MimirOrchestration.Executor.Payload`). A step's `input` is plain data, passed to
   `:run` as it is, or a `%MimirOrchestration.StepInput{}` resolved at dispatch
   against the step's dependencies' results.

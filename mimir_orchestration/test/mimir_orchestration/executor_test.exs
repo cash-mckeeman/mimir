@@ -56,6 +56,16 @@ defmodule MimirOrchestration.ExecutorTest do
              refused(run: {Run, :ok, [[]]}, params: %{"owner" => self()})
   end
 
+  test "a pid as the workflow id is refused by path" do
+    assert {:error, {:not_serialisable, [:workflow_id], :pid}} =
+             refused(run: {Run, :ok, [[]]}, workflow_id: self())
+  end
+
+  test "a function as max_concurrency is refused by path" do
+    assert {:error, {:not_serialisable, [:max_concurrency], :function}} =
+             refused(run: {Run, :ok, [[]]}, max_concurrency: fn -> 4 end)
+  end
+
   test "a pid inside a struct is refused" do
     assert {:error, {:not_serialisable, [:run, :extra_args, 0, :host], :pid}} =
              refused(run: {Run, :ok, [%URI{host: self()}]})
