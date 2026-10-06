@@ -7,7 +7,7 @@ defmodule MimirOrchestration.ExecutorTest do
   """
   use ExUnit.Case, async: true
 
-  alias MimirOrchestration.{Compiler, Exec, Policy, Runner, StepCall}
+  alias MimirOrchestration.{Compiler, Exec, NodeResult, Policy, Runner, StepCall}
 
   defmodule NeverExecutor do
     @behaviour MimirOrchestration.Executor
@@ -20,6 +20,32 @@ defmodule MimirOrchestration.ExecutorTest do
 
   defmodule Run do
     def ok(%StepCall{input: input}, _data), do: {:ok, input}
+  end
+
+  defmodule PlacementRouter do
+    @behaviour Mimir.RouterClient
+    @impl true
+    def route(req, opts) do
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "placement" => %{"model" => opts[:model]},
+        "grant" => %{"key" => "k-" <> req.step_id},
+        "decision_id" => "d-" <> req.step_id
+      })
+    end
+  end
+
+  # Reports what routing gave the step: the granted model and key, the decision
+  # id, and the turn guard's verdict on a fresh turn.
+  defmodule RoutedRunner do
+    @behaviour MimirOrchestration.AgentRunner
+    @impl true
+    def run(_ref, input, opts) do
+      %{"model" => model, "key" => key} = opts[:model]
+      verdict = opts[:turn_guard].(%{usage: %{}, turns: 0})
+      text = Enum.join([model, key, opts[:metadata][:decision_id], verdict, input], " ")
+      {:ok, %NodeResult{text: text, raw: %{}}}
+    end
   end
 
   defp steps,
@@ -102,25 +128,32 @@ defmodule MimirOrchestration.ExecutorTest do
 
   test "Exec.run/3 hands the payload to the :executor it is given" do
     assert {:ok, %{results: %{}, workflow_id: "never"}} =
-             Exec.run(pair(), %{"q" => "hi"}, executor: NeverExecutor)
+             Exec.run(plan(), %{"q" => "hi"}, executor: NeverExecutor)
 
     assert_received :executed
   end
 
   test "a second executor, given the payload as external terms, gets the in-memory results" do
     run = fn executor ->
-      Exec.run(pair(), %{"q" => "hi"}, workflow_id: "wf-rt", executor: executor)
+      Exec.run(plan(), %{"q" => "hi"},
+        workflow_id: "wf-rt",
+        executor: executor,
+        router: {PlacementRouter, [model: "fleet-rt"]},
+        agent_runner: RoutedRunner
+      )
     end
 
-    assert {:ok, %{results: %{"a" => "hi", "b" => "hi"}}} =
+    assert {:ok, %{results: %{"a" => "hi", "b" => "hi", "c" => c}}} =
              in_memory = run.(MimirOrchestration.Executor.InMemory)
+
+    assert c.text == "fleet-rt k-c d-c cont hi"
 
     assert run.(MimirOrchestration.Test.SequentialExecutor) == in_memory
   end
 
-  defp pair do
+  defp plan do
     spec = %{
-      "name" => "pair",
+      "name" => "plan",
       "version" => 1,
       "params" => ["q"],
       "steps" => [
@@ -137,12 +170,25 @@ defmodule MimirOrchestration.ExecutorTest do
           "tool" => "echo",
           "input" => "{{a}}",
           "depends_on" => ["a"]
+        },
+        %{
+          "id" => "c",
+          "kind" => "agent",
+          "agent" => "routed",
+          "input" => "{{b}}",
+          "depends_on" => ["b"],
+          "descriptor" => %{"task_class" => "analysis", "budget_ceiling_microdollars" => 1}
         }
       ]
     }
 
-    {:ok, compiled} =
-      Compiler.compile(spec, %Policy{allowed_tools: %{"echo" => {__MODULE__, :echo, []}}})
+    policy = %Policy{
+      agent_registry: %{"routed" => :routed},
+      allowed_tools: %{"echo" => {__MODULE__, :echo, []}},
+      budget_ceiling_microdollars: 10
+    }
+
+    {:ok, compiled} = Compiler.compile(spec, policy)
 
     compiled
   end
