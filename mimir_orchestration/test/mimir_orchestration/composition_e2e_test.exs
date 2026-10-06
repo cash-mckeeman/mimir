@@ -100,7 +100,8 @@ defmodule MimirOrchestration.CompositionE2ETest do
     end
 
     # Minimal live check: the composition's flat route request reaches the real
-    # gateway, and the reply, parsed or rejected, comes back as a routing result.
+    # gateway, which places the step or refuses it with a typed verdict
+    # (:no_candidate, :no_grant). A transport error or an unparsable reply fails it.
     defmodule LiveRouter do
       @behaviour Mimir.RouterClient
       @impl true
@@ -150,6 +151,11 @@ defmodule MimirOrchestration.CompositionE2ETest do
         llm_opts: [chat_fun: fn _m, _p, _ -> {:ok, "live-title"} end]
       )
 
-    assert match?({:ok, _}, result) or match?({:error, {:routing_failed, _}}, result)
+    assert match?({:ok, _}, result) or
+             match?(
+               {:error, {:step_failed, _, {:routing_failed, reason}}}
+               when reason in [:no_candidate, :no_grant],
+               result
+             )
   end
 end
