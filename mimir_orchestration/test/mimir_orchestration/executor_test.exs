@@ -97,6 +97,11 @@ defmodule MimirOrchestration.ExecutorTest do
              refused(run: {Run, :ok, [%URI{host: self()}]})
   end
 
+  test "a container under a map value is walked" do
+    assert {:error, {:not_serialisable, [:run, :extra_args, 0, :owner, 0], :pid}} =
+             refused(run: {Run, :ok, [%{owner: [self()]}]})
+  end
+
   test "the tail of an improper list is walked" do
     assert {:error, {:not_serialisable, [:run, :extra_args, 0, 1], :pid}} =
              refused(run: {Run, :ok, [[1 | self()]]})
