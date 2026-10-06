@@ -46,8 +46,9 @@ defmodule MimirWorkflows.Runner do
   | `[:mimir_workflows, :step, :stop]` | `%{duration}` | `%{run_ref, step_id, phase}` ∪ `telemetry_meta` |
   | `[:mimir_workflows, :step, :exception]` | `%{duration}` | `%{run_ref, step_id, phase, reason}` ∪ `telemetry_meta` |
 
-  A step whose task dies on its own gets its `:exception` event from the
-  runner process instead, and its `duration` is a bound, not a measurement:
+  A step whose task the runner has to reap, or that exits without reporting,
+  gets its `:exception` event from the runner process instead, and its
+  `duration` is a bound, not a measurement:
 
     * killed on timeout: `reason: :timeout`, and `duration` is the configured
       deadline, a lower bound on the time since the task was spawned (just
@@ -55,6 +56,8 @@ defmodule MimirWorkflows.Runner do
     * any other exit, which reaches the runner only when the caller traps
       exits: `reason` is the exit reason, and `duration` the time since the
       step's phase began, an upper bound.
+
+  A step the runner stops in an `:immediate` halt gets no event; see `:halt`.
 
   Handlers for a step's own events run inside its task, so a slow `:stop`
   handler can push the task past its deadline; that step then gets `:stop`
