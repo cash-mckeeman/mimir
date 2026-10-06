@@ -2,7 +2,7 @@ defmodule MimirOrchestration.RunnerGrantGuardTest do
   # Prices a synthetic model through the global `:mimir, :pricing` config, so it
   # runs outside the async modules that would otherwise see the setting.
   use ExUnit.Case, async: false
-  alias MimirOrchestration.Runner
+  alias MimirOrchestration.{Runner, StepCall}
 
   @model "test:priced"
 
@@ -24,20 +24,25 @@ defmodule MimirOrchestration.RunnerGrantGuardTest do
     end
   end
 
-  test "the turn guard halts once the placed model's spend passes the grant's budget" do
-    owner = self()
+  def report(%StepCall{opts: opts}, to) do
+    send(to, {:opts, opts})
+    {:ok, :done}
+  end
 
-    run_fun = fn _t, _i, opts ->
-      send(owner, {:opts, opts})
-      {:ok, :done}
-    end
+  test "the turn guard halts once the placed model's spend passes the grant's budget" do
+    name = :"runner_grant_guard_#{System.unique_integer([:positive])}"
+    Process.register(self(), name)
 
     steps = [
       %{id: "a", target: :t, input: 1, descriptor: %{"task_class" => "t"}, depends_on: []}
     ]
 
     assert {:ok, _} =
-             Runner.run(steps, router: {PricedRouter, []}, run_fun: run_fun, workflow_id: "wf")
+             Runner.run(steps,
+               router: {PricedRouter, []},
+               run: {__MODULE__, :report, [name]},
+               workflow_id: "wf"
+             )
 
     assert_receive {:opts, opts}
 

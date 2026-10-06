@@ -2,16 +2,19 @@ defmodule MimirOrchestration.Steps.LlmStep do
   @moduledoc """
   Runs one model call with the routed `:model` configuration.
 
-  The default uses the optional `req_llm` dependency. Hosts may inject a
-  `:chat_fun` accepting model, prompt and options. Returned errors pass through.
+  `:chat` is an MFA, `{module, function, extra_args}`, invoked as
+  `apply(module, function, [%{model: model, prompt: prompt} | extra_args])`. It
+  returns `{:ok, text}`, `{:ok, response}` or `{:error, reason}`; errors pass
+  through. The default uses the optional `req_llm` dependency; without it, the
+  default returns `{:error, {:missing_dependency, :req_llm}}`.
   """
 
   @spec run(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def run(prompt, opts) when is_binary(prompt) do
-    chat_fun = Keyword.get_lazy(opts, :chat_fun, &default_chat_fun/0)
+    {module, function, extra_args} = Keyword.get(opts, :chat, {__MODULE__, :req_llm_chat, []})
     model = Keyword.fetch!(opts, :model)
 
-    case chat_fun.(model, prompt, []) do
+    case apply(module, function, [%{model: model, prompt: prompt} | extra_args]) do
       {:ok, text} when is_binary(text) -> {:ok, text}
       {:ok, resp} -> {:ok, extract_text(resp)}
       {:error, reason} -> {:error, reason}
@@ -19,14 +22,12 @@ defmodule MimirOrchestration.Steps.LlmStep do
   end
 
   if Code.ensure_loaded?(ReqLLM) do
-    defp default_chat_fun, do: fn model, prompt, _ -> ReqLLM.generate_text(model, prompt, []) end
+    @doc false
+    def req_llm_chat(%{model: model, prompt: prompt}), do: ReqLLM.generate_text(model, prompt, [])
     defp extract_text(resp), do: ReqLLM.Response.text(resp)
   else
-    defp default_chat_fun do
-      raise "kind: \"llm\" steps need a :chat_fun or the optional :req_llm dep — " <>
-              "add {:req_llm, \"~> 1.10\"} to use the default"
-    end
-
+    @doc false
+    def req_llm_chat(_call), do: {:error, {:missing_dependency, :req_llm}}
     defp extract_text(resp), do: inspect(resp)
   end
 end

@@ -62,7 +62,9 @@ unconsumed, nonterminal steps without executing the workflow.
 
 - `MimirOrchestration.AgentRunner` runs an opaque agent reference and returns
   a `MimirOrchestration.NodeResult`. The default adapter uses `req_managed_agents`;
-  hosts can provide another implementation through `:agent_runner`.
+  hosts can provide another implementation through `:agent_runner`. Through
+  `Exec.run/3`, `:agent_runner_opts` are plain data, so a session `:handler` is a
+  module.
 - The router is a `Mimir.RouterClient` implementation, passed as
   `router: {module, opts}`. Each routed step sends it a flat request: the step
   descriptor's fields at the top level, as `Mimir.Descriptor.parse/1` reads them,
@@ -72,9 +74,20 @@ unconsumed, nonterminal steps without executing the workflow.
   with `{:routing_failed, reason}`; a router that raises, exits, throws or returns
   anything else fails it with `{:step_crashed, step_id, reason}`.
   `Mimir.RouterClient.HTTP` is the HTTP transport.
-- Tool registry entries are one-argument functions or `{module, function}` pairs.
+- `MimirOrchestration.Executor` runs the lowered steps. `Runner.run/2` and
+  `Exec.run/3` take `executor: module`; the default,
+  `MimirOrchestration.Executor.InMemory`, runs them in this node. What reaches an
+  executor is plain data: a function, pid, reference or port in the steps or the
+  options returns `{:error, {:not_serialisable, path, kind}}` and no step runs.
+  Callables are MFAs, `{module, function, extra_args}`. Plain data is not a
+  credential policy: an executor that persists payloads must not store router
+  credentials, such as a `Mimir.RouterClient.HTTP` bearer token, raw.
+- Tool registry entries are MFAs, `{module, function, extra_args}`, invoked as
+  `apply(module, function, [input | extra_args])`.
   Raised tool exceptions become `{:error, {:tool_crashed, exception}}`.
-- `llm` steps use the optional `req_llm` dependency or an injected `:chat_fun`.
+- `llm` steps use the optional `req_llm` dependency, or `llm_opts: [chat: mfa]`,
+  invoked with `%{model: model, prompt: prompt}` first. Without either, the step
+  fails with `{:missing_dependency, :req_llm}`.
 - With the optional `jido` dependency, `MimirOrchestration.AgentTool` wraps an
   agent reference as a `Jido.Action`. Its context can override the configured
   runtime and supply correlation metadata.

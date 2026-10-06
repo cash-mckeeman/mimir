@@ -1,7 +1,95 @@
 defmodule MimirOrchestration.AgentRunner.RMATest do
   use ExUnit.Case, async: true
   @moduletag :rma
-  alias MimirOrchestration.{AgentRunner, NodeResult}
+  alias MimirOrchestration.{AgentRunner, Compiler, Exec, NodeResult, Policy}
+
+  if Code.ensure_loaded?(ReqManagedAgents.Provider) do
+    defmodule ScriptedLocal do
+      @moduledoc false
+      # The Local provider with a scripted chat: as a module it is plain data, so it
+      # can sit in an agent reference that crosses the executor seam, where a
+      # chat_fun closure is refused. The first call asks for the "lookup" tool; the
+      # second answers with the tool's result.
+      @behaviour ReqManagedAgents.Provider
+      alias ReqManagedAgents.Providers.Local
+
+      @impl true
+      def open(opts, subscriber),
+        do: Local.open(Keyword.put(opts, :chat_fun, &__MODULE__.chat/1), subscriber)
+
+      def chat(%{messages: messages}) do
+        message =
+          case Enum.find(messages, &(&1["role"] == "tool")) do
+            nil ->
+              %{
+                "role" => "assistant",
+                "content" => nil,
+                "tool_calls" => [
+                  %{
+                    "id" => "call-1",
+                    "type" => "function",
+                    "function" => %{"name" => "lookup", "arguments" => "{}"}
+                  }
+                ]
+              }
+
+            %{"content" => found} ->
+              %{"role" => "assistant", "content" => "answer: " <> found}
+          end
+
+        reason = if message["tool_calls"], do: "tool_calls", else: "stop"
+        {:ok, %{"choices" => [%{"message" => message, "finish_reason" => reason}]}}
+      end
+
+      @impl true
+      defdelegate mode(), to: Local
+      @impl true
+      defdelegate provision(spec, opts), to: Local
+      @impl true
+      defdelegate teardown(handle, opts), to: Local
+      @impl true
+      defdelegate session_id(conn), to: Local
+      @impl true
+      defdelegate ref(conn), to: Local
+      @impl true
+      defdelegate consumer(conn), to: Local
+      @impl true
+      defdelegate resumed?(conn), to: Local
+      @impl true
+      defdelegate transcript(conn), to: Local
+      @impl true
+      defdelegate kickoff_input(opts), to: Local
+      @impl true
+      defdelegate user_input(text), to: Local
+      @impl true
+      defdelegate resume_input(tool_uses, results), to: Local
+      @impl true
+      defdelegate poll_turn(conn, input), to: Local
+      @impl true
+      defdelegate normalize(events), to: Local
+      @impl true
+      defdelegate text_delta(event), to: Local
+    end
+  end
+
+  defmodule LookupHandler do
+    @moduledoc false
+    def handle_tool_call("lookup", _input, _ctx), do: {:ok, "42"}
+  end
+
+  defmodule Router do
+    @moduledoc false
+    @behaviour Mimir.RouterClient
+    @impl true
+    def route(req, _opts) do
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "placement" => %{"model" => "fleet-fast"},
+        "grant" => %{"key" => "k"},
+        "decision_id" => "d-#{req.step_id}"
+      })
+    end
+  end
 
   # The session seam is injectable so tests never touch RMA's real providers:
   # session_fun.(provider, handle, opts) stands in for Session.run/2 with the
@@ -129,5 +217,44 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     # provision cache (a named public ETS table, an RMA internal) for the spec the
     # {:spec, _} ref provisioned; if RMA renames that table, update it here.
     assert [_ | _] = :ets.match_object(:req_managed_agents_provisions, {:_, spec})
+  end
+
+  test "through Exec, the default adapter runs a session with a module handler" do
+    spec = %{
+      spec: %{
+        system_prompt: "be brief",
+        tools: [%{"name" => "lookup", "description" => "look it up", "input_schema" => %{}}]
+      },
+      max_turns: 3
+    }
+
+    plan = %{
+      "name" => "ask",
+      "version" => 1,
+      "params" => ["q"],
+      "steps" => [
+        %{
+          "id" => "ask",
+          "kind" => "agent",
+          "agent" => "asker",
+          "input" => "{{params.q}}",
+          "descriptor" => %{"task_class" => "t", "budget_ceiling_microdollars" => 1},
+          "depends_on" => []
+        }
+      ]
+    }
+
+    policy = %Policy{
+      agent_registry: %{"asker" => {__MODULE__.ScriptedLocal, {:handle, spec}}},
+      budget_ceiling_microdollars: 10
+    }
+
+    {:ok, compiled} = Compiler.compile(plan, policy)
+
+    assert {:ok, %{results: %{"ask" => %NodeResult{text: "answer: 42"}}}} =
+             Exec.run(compiled, %{"q" => "what is it?"},
+               router: {Router, []},
+               agent_runner_opts: [handler: LookupHandler]
+             )
   end
 end
