@@ -9,11 +9,14 @@ defmodule MimirOrchestration.AgentRunner.RMAAbsentTest do
 
   alias MimirOrchestration.AgentRunner
 
-  test "the default runner returns missing_dependency" do
+  test "the default runner returns missing_dependency for specs and handles" do
     refute Code.ensure_loaded?(ReqManagedAgents),
            "req_managed_agents is loaded: run this under MIMIR_WITHOUT_RMA=1"
 
     assert {:error, {:missing_dependency, :req_managed_agents}} =
              AgentRunner.RMA.run({:provider, {:spec, %{}}}, "hello", [])
+
+    assert {:error, {:missing_dependency, :req_managed_agents}} =
+             AgentRunner.RMA.run({:provider, {:handle, "h"}}, "hello", [])
   end
 end
