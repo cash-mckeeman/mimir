@@ -226,6 +226,8 @@ jobs:
         with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: "rma-${{ matrix.bound }}"}
       - run: mix deps.unlock req_managed_agents && mix deps.get
       - run: mix compile --warnings-as-errors
+      - name: mix.exs declares the pin (a pin mix.exs ignores would still resolve the locked release)
+        run: mix run --no-start --no-compile --no-deps-check -e 'IO.puts(elem(List.keyfind(Mix.Project.config()[:deps], :req_managed_agents, 0), 1))' | grep -qx "== $MIMIR_RMA_PIN"
       - name: The pinned release is the one resolved (mix deps prints the version once it is compiled)
         run: mix deps | grep -E "^\* req_managed_agents ${MIMIR_RMA_PIN//./\\.} " || { mix deps; exit 1; }
       - run: mix test test/mimir_orchestration/agent_runner_rma_test.exs test/mimir_orchestration/composition_e2e_test.exs
