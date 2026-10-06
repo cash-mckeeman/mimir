@@ -123,5 +123,11 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
       assert_receive {:chat, [%{"role" => "system", "content" => "be brief"} | rest]}
       assert %{"role" => "user", "content" => "ping"} in rest
     end
+
+    # Local's provision/2 is identity, so the run above cannot tell a real
+    # ReqManagedAgents.provision/2 call from a bypass. This reads RMA's default
+    # provision cache (a named public ETS table, an RMA internal) for the spec the
+    # {:spec, _} ref provisioned; if RMA renames that table, update it here.
+    assert [_ | _] = :ets.match_object(:req_managed_agents_provisions, {:_, spec})
   end
 end
