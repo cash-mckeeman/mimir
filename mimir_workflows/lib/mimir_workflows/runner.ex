@@ -5,7 +5,8 @@ defmodule MimirWorkflows.Runner do
   Steps whose dependencies are all satisfied by earlier phases share a
   phase and run concurrently via `Task.async_stream`; phases execute
   sequentially. A failure in any step halts the run and returns an error
-  tuple carrying the step id.
+  tuple carrying the step id; the `:halt` option decides whether the rest
+  of the failing phase is stopped or allowed to finish first.
 
   ## Step spec shape
 
@@ -89,6 +90,7 @@ defmodule MimirWorkflows.Runner do
           | {:step_crashed, step_id(), term()}
 
   @default_timeout 120_000
+  @halts [:immediate, :after_phase]
 
   @doc """
   Runs the step specs and returns results keyed by step id.
@@ -102,13 +104,27 @@ defmodule MimirWorkflows.Runner do
       `{:step_crashed, step_id, :timeout}`.
     * `:telemetry_meta` — map merged into every telemetry event's
       metadata (default `%{}`).
+    * `:halt` — what a failure does to the rest of its phase.
+      `:immediate` (the default) stops the phase's other steps at once.
+      `:after_phase` lets every step of the phase finish, then returns the
+      first failure in completion order; later phases never start. Any
+      other value raises `ArgumentError`.
   """
   @spec run([step_spec()], keyword()) :: {:ok, %{step_id() => map()}} | {:error, error()}
-  def run(steps, opts \\ [])
+  def run(steps, opts \\ []) do
+    halt = Keyword.get(opts, :halt, :immediate)
 
-  def run([], _opts), do: {:ok, %{}}
+    if halt not in @halts do
+      raise ArgumentError,
+            "the :halt option must be :immediate or :after_phase, got: #{inspect(halt)}"
+    end
 
-  def run(steps, opts) do
+    run_steps(steps, opts)
+  end
+
+  defp run_steps([], _opts), do: {:ok, %{}}
+
+  defp run_steps(steps, opts) do
     case Dag.waves(steps) do
       {:ok, phases} ->
         meta = base_meta(opts)
@@ -175,26 +191,8 @@ defmodule MimirWorkflows.Runner do
         zip_input_on_exit: true,
         ordered: false
       )
-      |> Enum.reduce_while({:ok, %{}}, fn
-        {:ok, {step_id, {:ok, result}}}, {:ok, phase_acc} ->
-          {:cont, {:ok, Map.put(phase_acc, step_id, result)}}
-
-        {:ok, {step_id, {:error, reason}}}, _acc ->
-          {:halt, {:error, {:step_failed, step_id, reason}}}
-
-        {:ok, {step_id, {:crashed, kind, reason}}}, _acc ->
-          {:halt, {:error, {:step_crashed, step_id, {kind, reason}}}}
-
-        {:exit, {step_id, :timeout}}, _acc ->
-          step_meta = Map.merge(meta, %{step_id: step_id, phase: phase_idx, reason: :timeout})
-          emit_exit(System.convert_time_unit(timeout, :millisecond, :native), step_meta)
-          {:halt, {:error, {:step_crashed, step_id, :timeout}}}
-
-        {:exit, {step_id, reason}}, _acc ->
-          step_meta = Map.merge(meta, %{step_id: step_id, phase: phase_idx, reason: reason})
-          emit_exit(System.monotonic_time() - phase_started, step_meta)
-          {:halt, {:error, {:step_crashed, step_id, reason}}}
-      end)
+      |> Stream.map(&classify(&1, meta, phase_idx, timeout, phase_started))
+      |> collect(Keyword.get(opts, :halt, :immediate))
 
     case results do
       {:ok, phase_results} ->
@@ -203,6 +201,47 @@ defmodule MimirWorkflows.Runner do
       {:error, _} = error ->
         error
     end
+  end
+
+  # One stream element -> {:ok, step_id, result} | {:error, error}. A dead
+  # task gets its runner-side :exception event here.
+  defp classify({:ok, {step_id, {:ok, result}}}, _meta, _idx, _timeout, _started),
+    do: {:ok, step_id, result}
+
+  defp classify({:ok, {step_id, {:error, reason}}}, _meta, _idx, _timeout, _started),
+    do: {:error, {:step_failed, step_id, reason}}
+
+  defp classify({:ok, {step_id, {:crashed, kind, reason}}}, _meta, _idx, _timeout, _started),
+    do: {:error, {:step_crashed, step_id, {kind, reason}}}
+
+  defp classify({:exit, {step_id, :timeout}}, meta, idx, timeout, _started) do
+    step_meta = Map.merge(meta, %{step_id: step_id, phase: idx, reason: :timeout})
+    emit_exit(System.convert_time_unit(timeout, :millisecond, :native), step_meta)
+    {:error, {:step_crashed, step_id, :timeout}}
+  end
+
+  defp classify({:exit, {step_id, reason}}, meta, idx, _timeout, started) do
+    step_meta = Map.merge(meta, %{step_id: step_id, phase: idx, reason: reason})
+    emit_exit(System.monotonic_time() - started, step_meta)
+    {:error, {:step_crashed, step_id, reason}}
+  end
+
+  # :immediate halts the stream at the first failure, which shuts down the
+  # rest of the phase.
+  defp collect(stream, :immediate) do
+    Enum.reduce_while(stream, {:ok, %{}}, fn
+      {:ok, id, result}, {:ok, acc} -> {:cont, {:ok, Map.put(acc, id, result)}}
+      {:error, _} = error, _acc -> {:halt, error}
+    end)
+  end
+
+  # :after_phase consumes the whole phase, keeping the first failure it saw.
+  defp collect(stream, :after_phase) do
+    Enum.reduce(stream, {:ok, %{}}, fn
+      {:ok, id, result}, {:ok, acc} -> {:ok, Map.put(acc, id, result)}
+      {:error, _} = error, {:ok, _} -> error
+      _element, {:error, _} = first -> first
+    end)
   end
 
   defp max_concurrency(phase, opts) do

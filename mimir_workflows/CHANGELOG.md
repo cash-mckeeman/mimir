@@ -14,3 +14,4 @@ First public release.
 - `Graph` and `Dag`: edge-list reachability, cycle detection and minimal-phase `waves/1`.
 - `Step`, `Runner` and `Result`: a reference executor that runs each phase concurrently, kills a step at its
   timeout and reports it as `{:step_crashed, step_id, :timeout}`, emits run and step telemetry, and folds usage.
+- `Runner.run/2` takes `halt: :after_phase` to let a failing phase finish before the run stops.
