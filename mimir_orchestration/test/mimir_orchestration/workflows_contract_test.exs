@@ -58,7 +58,7 @@ defmodule MimirOrchestration.WorkflowsContractTest do
     :telemetry.attach(
       "wf-contract",
       [:mimir_workflows, :step, :start],
-      fn _e, _m, meta, _ -> send(owner, {:wf, meta.step_id, meta.phase, meta.workflow_id}) end,
+      fn _e, _m, meta, _ -> send(owner, {:wf, meta.step_id, meta.phase, meta[:workflow_id]}) end,
       nil
     )
 
