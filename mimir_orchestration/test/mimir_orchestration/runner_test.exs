@@ -420,4 +420,30 @@ defmodule MimirOrchestration.RunnerTest do
   after
     :telemetry.detach("wave-drain")
   end
+
+  test "halt: :immediate stops a failing step's running siblings" do
+    owner = self()
+    handler = fn _event, _measurements, meta, _config -> send(owner, {:stopped, meta.step_id}) end
+    :telemetry.attach("halt-immediate", [:mimir_orchestration, :step, :stop], handler, nil)
+
+    steps = [
+      %{id: "f", target: :t, input: :fail, descriptor: %{}, depends_on: [], route: false},
+      %{
+        id: "s",
+        target: :t,
+        input: {:sleep, 1_000, :late},
+        descriptor: %{},
+        depends_on: [],
+        route: false
+      }
+    ]
+
+    assert {:error, {:step_failed, "f", :kaput}} =
+             Runner.run(steps, run_opts(run: {__MODULE__, :drain, []}, halt: :immediate))
+
+    assert_received {:stopped, "f"}
+    refute_received {:stopped, "s"}
+  after
+    :telemetry.detach("halt-immediate")
+  end
 end
