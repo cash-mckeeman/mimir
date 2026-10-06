@@ -224,8 +224,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/beam
         with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: "rma-${{ matrix.bound }}"}
-      - run: mix deps.update req_managed_agents
-      - run: mix deps.get
+      - run: mix deps.unlock req_managed_agents && mix deps.get
       - run: mix compile --warnings-as-errors
       - name: The pinned release is the one resolved (mix deps prints the version once it is compiled)
         run: mix deps | grep -E "^\* req_managed_agents ${MIMIR_RMA_PIN//./\\.} " || { mix deps; exit 1; }
