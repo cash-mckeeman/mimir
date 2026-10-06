@@ -66,6 +66,16 @@ defmodule Integration.CloudEventTypesContractTest do
         envelope
       end
 
+    helpers = Types.__info__(:functions) -- [for_event: 1, namespace: 0]
+
+    assert Enum.sort(helpers) == [
+             eval_outcome: 0,
+             ledger_completion: 0,
+             memory: 1,
+             routing_decision: 0
+           ],
+           "a Mimir.CloudEvent.Types helper has no envelope here: #{inspect(helpers)}"
+
     envelopes = lifecycle ++ records
     path = Path.join(dir, "gateway.jsonl")
 
