@@ -80,6 +80,14 @@ defmodule Integration.CloudEventTypesContractTest do
     {:ok, _summary} = GatewayExport.ingest(store, path)
 
     assert {:ok, rows} = Store.query(store, "SELECT ce_type FROM events_raw ORDER BY ce_type")
-    assert List.flatten(rows) == envelopes |> Enum.map(& &1.type) |> Enum.sort()
+    expected = envelopes |> Enum.map(& &1.type) |> Enum.sort()
+    got = List.flatten(rows)
+
+    missing = MapSet.difference(MapSet.new(expected), MapSet.new(got))
+    extra = MapSet.difference(MapSet.new(got), MapSet.new(expected))
+
+    assert missing == MapSet.new(), "types missing from events_raw: #{inspect(missing)}"
+    assert extra == MapSet.new(), "types no producer generated: #{inspect(extra)}"
+    assert got == expected
   end
 end
