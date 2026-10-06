@@ -68,8 +68,10 @@ unconsumed, nonterminal steps without executing the workflow.
   descriptor's fields at the top level, as `Mimir.Descriptor.parse/1` reads them,
   plus `workflow_id`, `step_id`, `parent_step_id`, `fanout_hint` and `path`. A
   `Mimir.RouteResponse` placement with a grant produces the step's model map and
-  a `Mimir.Guard` turn guard. Anything else fails the step with
-  `{:routing_failed, reason}`. `Mimir.RouterClient.HTTP` is the HTTP transport.
+  a `Mimir.Guard` turn guard. Any other `{:ok, _}` or `{:error, _}` fails the step
+  with `{:routing_failed, reason}`; a router that raises, exits, throws or returns
+  anything else fails it with `{:step_crashed, step_id, reason}`.
+  `Mimir.RouterClient.HTTP` is the HTTP transport.
 - Tool registry entries are one-argument functions or `{module, function}` pairs.
   Raised tool exceptions become `{:error, {:tool_crashed, exception}}`.
 - `llm` steps use the optional `req_llm` dependency or an injected `:chat_fun`.

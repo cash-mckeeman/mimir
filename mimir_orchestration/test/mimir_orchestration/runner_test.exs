@@ -232,7 +232,7 @@ defmodule MimirOrchestration.RunnerTest do
              Runner.run(steps, router: {NoCandidateRouter, []}, run_fun: run_fun)
   end
 
-  test "a router that returns anything but a RouteResponse is a routing failure" do
+  test "an {:ok, _} that is not a RouteResponse is a routing failure" do
     defmodule MapRouter do
       @behaviour Mimir.RouterClient
       @impl true
