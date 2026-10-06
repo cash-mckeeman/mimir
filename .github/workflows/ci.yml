@@ -263,6 +263,7 @@ jobs:
         run: if grep -qE '^  "mimir(_[a-z]+)?":' mix.lock; then echo "a sibling is locked; path deps are never locked"; exit 1; fi
       - run: mix deps.get
       - run: mix deps.unlock --check-unused
+      - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - run: mix mimir_analytics.setup
       - run: mix test
