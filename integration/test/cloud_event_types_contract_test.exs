@@ -46,26 +46,22 @@ defmodule Integration.CloudEventTypesContractTest do
         envelope
       end
 
-    sent = [
-      routing_decision: Types.routing_decision(),
-      ledger_completion: Types.ledger_completion(),
-      eval_outcome: Types.eval_outcome(),
-      memory: Types.memory(:proposed)
-    ]
+    sent = [routing_decision: [], ledger_completion: [], eval_outcome: [], memory: [:proposed]]
 
     helpers = Types.__info__(:functions) -- [for_event: 1, namespace: 0]
+    called = for {helper, args} <- sent, do: {helper, length(args)}
 
-    assert Enum.sort(Keyword.keys(helpers)) == Enum.sort(Keyword.keys(sent)),
+    assert Enum.sort(helpers) == Enum.sort(called),
            "Mimir.CloudEvent.Types helpers #{inspect(helpers)} differ from those sent here: " <>
-             inspect(Keyword.keys(sent))
+             inspect(called)
 
     records =
-      for {type, i} <- Enum.with_index(Keyword.values(sent)) do
+      for {{helper, args}, i} <- Enum.with_index(sent) do
         {:ok, envelope} =
           CloudEvent.new(
             id: "rec-#{i}",
             source: @source,
-            type: type,
+            type: apply(Types, helper, args),
             time: @time,
             data: %{"seq" => i + 1}
           )
