@@ -39,6 +39,7 @@ First public release.
   `{:error, {:missing_dependency, :req_managed_agents}}`.
 - `Runner.run/2`'s `:run_fun` closure is now `:run`, an MFA invoked as
   `apply(m, f, [%MimirOrchestration.StepCall{} | extra_args])`. What the closure captured travels in `extra_args`.
+  A `:run` of another shape returns `{:error, {:not_a_callable, run}}`.
 - Step inputs that are templates are `%MimirOrchestration.StepInput{}` data, resolved at dispatch, instead of
   closures.
 - `Runner.run/2` refuses a run whose steps or options (all but `:executor`) carry a function, pid, reference or port,

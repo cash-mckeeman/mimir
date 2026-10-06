@@ -10,7 +10,8 @@ defmodule MimirOrchestration.Runner do
     * `:run` (required) — an MFA `{module, function, extra_args}`, invoked once per
       step as `apply(module, function, [%MimirOrchestration.StepCall{} | extra_args])`.
       It returns `{:ok, value}` or `{:error, reason}`; anything else fails the step
-      with `{:bad_return, other}`.
+      with `{:bad_return, other}`. A `:run` of another shape returns
+      `{:error, {:not_a_callable, run}}` and no step runs.
     * `:router` — `{module, opts}`, where `module` implements `Mimir.RouterClient`.
     * `:workflow_id` — default a random `"wf-…"`.
     * `:params` — the run's params, which `%MimirOrchestration.StepInput{}` inputs

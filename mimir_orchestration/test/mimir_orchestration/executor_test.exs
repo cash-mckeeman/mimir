@@ -94,6 +94,12 @@ defmodule MimirOrchestration.ExecutorTest do
     assert {:error, {:not_serialisable, [:run], :function}} = refused(run: fn _ -> :ok end)
   end
 
+  for run <- [quote(do: {Run, :ok}), quote(do: {Run, :ok, %{}})] do
+    test "#{Macro.to_string(run)} as :run is not a callable" do
+      assert refused(run: unquote(run)) == {:error, {:not_a_callable, unquote(run)}}
+    end
+  end
+
   test "Exec.run/3 hands the payload to the :executor it is given" do
     assert {:ok, %{results: %{}, workflow_id: "never"}} =
              Exec.run(pair(), %{"q" => "hi"}, executor: NeverExecutor)

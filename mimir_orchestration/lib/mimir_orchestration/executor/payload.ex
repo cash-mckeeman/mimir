@@ -46,9 +46,14 @@ defmodule MimirOrchestration.Executor.Payload do
   Options: `:run` (required), `:router`, `:workflow_id` (default a random `"wf-…"`),
   `:params` (default `%{}`), `:max_concurrency` (4), `:step_timeout` (120 000 ms;
   `:infinity` allowed), `:halt` (`:after_phase`).
+
+  A plain-data `:run` that is not `{module, function, extra_args}` returns
+  `{:error, {:not_a_callable, run}}`.
   """
   @spec new([step()], keyword()) ::
-          {:ok, t()} | {:error, {:not_serialisable, [term()], Serialisable.kind()}}
+          {:ok, t()}
+          | {:error, {:not_serialisable, [term()], Serialisable.kind()}}
+          | {:error, {:not_a_callable, term()}}
   def new(steps, opts) do
     payload = %__MODULE__{
       steps: steps,
@@ -61,8 +66,14 @@ defmodule MimirOrchestration.Executor.Payload do
       halt: Keyword.get(opts, :halt, :after_phase)
     }
 
-    with :ok <- Serialisable.check(payload), do: {:ok, payload}
+    with :ok <- Serialisable.check(payload), :ok <- check_run(payload.run), do: {:ok, payload}
   end
+
+  defp check_run({module, function, extra_args})
+       when is_atom(module) and is_atom(function) and is_list(extra_args),
+       do: :ok
+
+  defp check_run(other), do: {:error, {:not_a_callable, other}}
 
   defp random_workflow_id, do: "wf-" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 end
