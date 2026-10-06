@@ -83,11 +83,10 @@ defmodule Integration.CloudEventTypesContractTest do
     expected = envelopes |> Enum.map(& &1.type) |> Enum.sort()
     got = List.flatten(rows)
 
-    missing = MapSet.difference(MapSet.new(expected), MapSet.new(got))
-    extra = MapSet.difference(MapSet.new(got), MapSet.new(expected))
+    missing = expected -- got
+    extra = got -- expected
 
-    assert missing == MapSet.new(), "types missing from events_raw: #{inspect(missing)}"
-    assert extra == MapSet.new(), "types no producer generated: #{inspect(extra)}"
-    assert got == expected
+    assert {missing, extra} == {[], []},
+           "events_raw lost #{inspect(missing)} and gained #{inspect(extra)}"
   end
 end
