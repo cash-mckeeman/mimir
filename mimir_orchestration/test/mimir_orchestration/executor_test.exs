@@ -84,7 +84,25 @@ defmodule MimirOrchestration.ExecutorTest do
     assert {:error, {:not_serialisable, [:run], :function}} = refused(run: fn _ -> :ok end)
   end
 
+  test "Exec.run/3 hands the payload to the :executor it is given" do
+    assert {:ok, %{results: %{}, workflow_id: "never"}} =
+             Exec.run(pair(), %{"q" => "hi"}, executor: NeverExecutor)
+
+    assert_received :executed
+  end
+
   test "a second executor, given the payload as external terms, gets the in-memory results" do
+    run = fn executor ->
+      Exec.run(pair(), %{"q" => "hi"}, workflow_id: "wf-rt", executor: executor)
+    end
+
+    assert {:ok, %{results: %{"a" => "hi", "b" => "hi"}}} =
+             in_memory = run.(MimirOrchestration.Executor.InMemory)
+
+    assert run.(MimirOrchestration.Test.SequentialExecutor) == in_memory
+  end
+
+  defp pair do
     spec = %{
       "name" => "pair",
       "version" => 1,
@@ -110,14 +128,7 @@ defmodule MimirOrchestration.ExecutorTest do
     {:ok, compiled} =
       Compiler.compile(spec, %Policy{allowed_tools: %{"echo" => {__MODULE__, :echo, []}}})
 
-    run = fn executor ->
-      Exec.run(compiled, %{"q" => "hi"}, workflow_id: "wf-rt", executor: executor)
-    end
-
-    assert {:ok, %{results: %{"a" => "hi", "b" => "hi"}}} =
-             in_memory = run.(MimirOrchestration.Executor.InMemory)
-
-    assert run.(MimirOrchestration.Test.SequentialExecutor) == in_memory
+    compiled
   end
 
   def echo(input), do: {:ok, input}
