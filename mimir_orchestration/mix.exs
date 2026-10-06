@@ -48,7 +48,16 @@ defmodule MimirOrchestration.MixProject do
 
   # MIMIR_WITHOUT_RMA=1 removes it from the dependency graph (CI's without-RMA leg);
   # MIMIR_RMA_PIN=<version> pins one release inside the range (CI's range legs).
+  # Publishing refuses both, so a tarball never carries a CI-only requirement.
   defp rma_dep do
+    if System.get_env("MIMIR_PUBLISH") in ["1", "floor"] and
+         (System.get_env("MIMIR_WITHOUT_RMA") || System.get_env("MIMIR_RMA_PIN")) do
+      Mix.raise(
+        "MIMIR_PUBLISH cannot be combined with MIMIR_WITHOUT_RMA or MIMIR_RMA_PIN: " <>
+          "they are CI-only and would change the published requirements"
+      )
+    end
+
     cond do
       System.get_env("MIMIR_WITHOUT_RMA") == "1" ->
         []
