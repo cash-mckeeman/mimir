@@ -57,7 +57,7 @@ defmodule MimirWorkflows.Runner do
       exits: `reason` is the exit reason, and `duration` the time since the
       step's phase began, an upper bound.
 
-  A step the runner stops in an `:immediate` halt gets no event; see `:halt`.
+  A step the runner stops in an `:immediate` halt emits no `:stop` or `:exception`; see `:halt`.
 
   Handlers for a step's own events run inside its task, so a slow `:stop`
   handler can push the task past its deadline; that step then gets `:stop`
