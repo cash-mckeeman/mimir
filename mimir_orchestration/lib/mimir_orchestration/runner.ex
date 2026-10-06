@@ -10,7 +10,7 @@ defmodule MimirOrchestration.Runner do
     * `:run` (required) — an MFA `{module, function, extra_args}`, invoked once per
       step as `apply(module, function, [%MimirOrchestration.StepCall{} | extra_args])`.
       It returns `{:ok, value}` or `{:error, reason}`; anything else fails the step
-      with `{:bad_return, other}`. A `:run` of another shape returns
+      with `{:bad_return, other}`. A plain-data `:run` of another shape returns
       `{:error, {:not_a_callable, run}}` and no step runs.
     * `:router` — `{module, opts}`, where `module` implements `Mimir.RouterClient`.
     * `:workflow_id` — default a random `"wf-…"`.
@@ -26,9 +26,16 @@ defmodule MimirOrchestration.Runner do
   Steps and options are plain data: a function, pid, reference or port anywhere in
   the steps or in any option but `:executor` returns
   `{:error, {:not_serialisable, path, kind}}` and no step runs (see
-  `MimirOrchestration.Executor.Payload`). A step's `input` is plain data, passed to
-  `:run` as it is, or a `%MimirOrchestration.StepInput{}` resolved at dispatch
-  against the step's dependencies' results.
+  `MimirOrchestration.Executor.Payload`).
+
+  A missing `:run` raises `KeyError`, and an `:executor` without `execute/1` raises
+  `UndefinedFunctionError`. An executor's own raise propagates to the caller. The
+  default executor raises `ArgumentError` for a `:halt` other than `:after_phase`
+  or `:immediate`.
+
+  A step's `input` is plain data, passed to `:run` as it is, or a
+  `%MimirOrchestration.StepInput{}` resolved at dispatch against the step's
+  dependencies' results.
 
   The route request is flat: the step descriptor's fields at the top level, plus
   `:workflow_id`, `:step_id`, `:parent_step_id`, `:fanout_hint` and `:path`. A
