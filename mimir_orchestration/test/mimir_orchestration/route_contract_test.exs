@@ -116,6 +116,9 @@ defmodule MimirOrchestration.RouteContractTest do
              path: ["workflow:wf-c", "workflow_step:a"]
            } = request
 
+    refute Map.has_key?(request, :descriptor)
+    refute Map.has_key?(request, "descriptor")
+
     assert_received {:dispatched, opts}
     assert opts[:model] == %{"key" => "vk-contract", "model" => "ollama:model-tools"}
     assert is_function(opts[:turn_guard], 1)
