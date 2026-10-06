@@ -102,7 +102,7 @@ defmodule MimirOrchestration.RunnerTest do
     assert {:error, {:step_failed, "a", :kaput}} = Runner.run(steps, run_opts(run_fun: run_fun))
   end
 
-  describe "typed decisions (mimir 0.3.0)" do
+  describe "a placement with a grant" do
     defmodule TypedRouter do
       @behaviour Mimir.RouterClient
       @impl true
@@ -120,7 +120,7 @@ defmodule MimirOrchestration.RunnerTest do
       end
     end
 
-    test "typed decision threads turn_guard + decision_id metadata" do
+    test "dispatch gets turn_guard and decision_id metadata" do
       owner = self()
 
       run_fun = fn _t, _i, opts ->
