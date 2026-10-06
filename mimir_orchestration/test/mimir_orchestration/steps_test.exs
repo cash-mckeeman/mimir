@@ -1,6 +1,7 @@
 defmodule MimirOrchestration.StepsTest do
   use ExUnit.Case, async: true
   alias MimirOrchestration.Steps.{LlmStep, ToolStep}
+  alias MimirOrchestration.Test.Registered
 
   def echo(%{"text" => t}, tag), do: {:ok, %{tag => t}}
   def boom(_input), do: {:error, "nope"}
@@ -32,8 +33,7 @@ defmodule MimirOrchestration.StepsTest do
   end
 
   test "LlmStep makes exactly one chat call with the routed model" do
-    name = :"steps_test_#{System.unique_integer([:positive])}"
-    Process.register(self(), name)
+    name = Registered.self_name()
 
     assert {:ok, "TITLE"} =
              LlmStep.run("one-line title",

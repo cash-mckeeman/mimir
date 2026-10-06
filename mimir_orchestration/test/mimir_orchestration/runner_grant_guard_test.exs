@@ -3,6 +3,7 @@ defmodule MimirOrchestration.RunnerGrantGuardTest do
   # runs outside the async modules that would otherwise see the setting.
   use ExUnit.Case, async: false
   alias MimirOrchestration.{Runner, StepCall}
+  alias MimirOrchestration.Test.Registered
 
   @model "test:priced"
 
@@ -30,8 +31,7 @@ defmodule MimirOrchestration.RunnerGrantGuardTest do
   end
 
   test "the turn guard halts once the placed model's spend passes the grant's budget" do
-    name = :"runner_grant_guard_#{System.unique_integer([:positive])}"
-    Process.register(self(), name)
+    name = Registered.self_name()
 
     steps = [
       %{id: "a", target: :t, input: 1, descriptor: %{"task_class" => "t"}, depends_on: []}

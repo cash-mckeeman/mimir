@@ -1,6 +1,7 @@
 defmodule MimirOrchestration.CompositionE2ETest do
   use ExUnit.Case, async: true
   alias MimirOrchestration.{Compiler, Eval, Exec, NodeResult, Policy}
+  alias MimirOrchestration.Test.Registered
 
   defmodule Router do
     @behaviour Mimir.RouterClient
@@ -58,13 +59,6 @@ defmodule MimirOrchestration.CompositionE2ETest do
   def title(%{prompt: p}), do: {:ok, "TITLE(#{String.slice(p, 0, 6)})"}
   def live_title(%{prompt: _}), do: {:ok, "live-title"}
 
-  # Pids may not cross the executor seam: the test process is reached by name.
-  defp owner do
-    name = :"composition_e2e_#{System.unique_integer([:positive])}"
-    Process.register(self(), name)
-    name
-  end
-
   defp policy do
     %Policy{
       agent_registry: %{"a" => {:rma, "a"}, "b" => {:rma, "b"}},
@@ -80,7 +74,7 @@ defmodule MimirOrchestration.CompositionE2ETest do
                router: {Router, []},
                workflow_id: "wf-e2e",
                agent_runner: StubRunner,
-               agent_runner_opts: [owner: owner()],
+               agent_runner_opts: [owner: Registered.self_name()],
                llm_opts: [chat: {__MODULE__, :title, []}]
              )
 
@@ -155,7 +149,7 @@ defmodule MimirOrchestration.CompositionE2ETest do
       Exec.run(compiled, %{"q" => "live kpis?"},
         router: {LiveRouter, [url: url]},
         agent_runner: MimirOrchestration.CompositionE2ETest.StubRunner,
-        agent_runner_opts: [owner: owner()],
+        agent_runner_opts: [owner: Registered.self_name()],
         llm_opts: [chat: {__MODULE__, :live_title, []}]
       )
 

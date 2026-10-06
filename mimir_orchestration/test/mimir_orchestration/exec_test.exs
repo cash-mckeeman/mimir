@@ -1,6 +1,7 @@
 defmodule MimirOrchestration.ExecTest do
   use ExUnit.Case, async: true
   alias MimirOrchestration.{Compiled, Compiler, Exec, NodeResult, Policy}
+  alias MimirOrchestration.Test.Registered
 
   defmodule Router do
     @behaviour Mimir.RouterClient
@@ -25,13 +26,6 @@ defmodule MimirOrchestration.ExecTest do
   end
 
   def upcase(%NodeResult{text: t}), do: {:ok, %{"text" => String.upcase(t)}}
-
-  # Pids may not cross the executor seam: the test process is reached by name.
-  defp owner do
-    name = :"exec_test_#{System.unique_integer([:positive])}"
-    Process.register(self(), name)
-    name
-  end
 
   defp compiled do
     spec = %{
@@ -72,7 +66,7 @@ defmodule MimirOrchestration.ExecTest do
              Exec.run(compiled(), %{"q" => "kpis"},
                router: {Router, []},
                agent_runner: StubRunner,
-               agent_runner_opts: [owner: owner()]
+               agent_runner_opts: [owner: Registered.self_name()]
              )
 
     assert results["analyze"].text == "out-stub"

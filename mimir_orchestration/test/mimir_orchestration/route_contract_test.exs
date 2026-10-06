@@ -7,6 +7,7 @@ defmodule MimirOrchestration.RouteContractTest do
   use ExUnit.Case, async: true
 
   alias MimirOrchestration.{Runner, StepCall}
+  alias MimirOrchestration.Test.Registered
 
   defmodule WireRouter do
     @behaviour Mimir.RouterClient
@@ -75,8 +76,7 @@ defmodule MimirOrchestration.RouteContractTest do
   end
 
   test "request, response and dispatch agree" do
-    name = :"route_contract_#{System.unique_integer([:positive])}"
-    Process.register(self(), name)
+    name = Registered.self_name()
 
     steps = [
       %{

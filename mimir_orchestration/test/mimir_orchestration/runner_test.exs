@@ -1,6 +1,7 @@
 defmodule MimirOrchestration.RunnerTest do
   use ExUnit.Case, async: true
   alias MimirOrchestration.{Runner, StepCall, StepInput}
+  alias MimirOrchestration.Test.Registered
 
   defmodule FakeRouter do
     @behaviour Mimir.RouterClient
@@ -19,23 +20,12 @@ defmodule MimirOrchestration.RunnerTest do
 
   defp run_opts(extra),
     do:
-      Keyword.merge([router: {FakeRouter, [capture: capture_name()]}, workflow_id: "wf-t"], extra)
+      Keyword.merge(
+        [router: {FakeRouter, [capture: Registered.self_name()]}, workflow_id: "wf-t"],
+        extra
+      )
 
-  # The router captures to the calling process's registered name, not its pid, so
-  # router opts stay plain data.
-  defp capture_name do
-    case Process.info(self(), :registered_name) do
-      {:registered_name, name} when is_atom(name) ->
-        name
-
-      _unregistered ->
-        name = :"runner_test_#{System.unique_integer([:positive])}"
-        Process.register(self(), name)
-        name
-    end
-  end
-
-  # :run MFAs. `to` is a registered name: pids may not cross the executor seam.
+  # :run MFAs; `to` is a registered name.
   def did(%StepCall{input: input}), do: {:ok, {:did, input}}
   def echo(%StepCall{input: input}), do: {:ok, input}
   def never(%StepCall{}), do: flunk("must not dispatch")
@@ -100,7 +90,7 @@ defmodule MimirOrchestration.RunnerTest do
       }
     ]
 
-    run = {__MODULE__, :report_input, [capture_name()]}
+    run = {__MODULE__, :report_input, [Registered.self_name()]}
     assert {:ok, _} = Runner.run(steps, run_opts(run: run, params: %{"q" => "why"}))
     assert_receive {:input, "a", "static"}
     assert_receive {:input, "b", ["got", "r-a", "why"]}
@@ -110,7 +100,10 @@ defmodule MimirOrchestration.RunnerTest do
     steps = [%{id: "t1", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false}]
 
     assert {:ok, _} =
-             Runner.run(steps, run_opts(run: {__MODULE__, :report_opts, [capture_name()]}))
+             Runner.run(
+               steps,
+               run_opts(run: {__MODULE__, :report_opts, [Registered.self_name()]})
+             )
 
     assert_receive {:ran, opts}
     assert opts[:metadata][:step_id] == "t1"
@@ -154,7 +147,7 @@ defmodule MimirOrchestration.RunnerTest do
       assert {:ok, _} =
                Runner.run(steps,
                  router: {TypedRouter, []},
-                 run: {__MODULE__, :report_opts, [capture_name()]},
+                 run: {__MODULE__, :report_opts, [Registered.self_name()]},
                  workflow_id: "wf"
                )
 
@@ -208,7 +201,10 @@ defmodule MimirOrchestration.RunnerTest do
     steps = [%{id: "t1", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false}]
 
     assert {:ok, _} =
-             Runner.run(steps, run_opts(run: {__MODULE__, :report_opts, [capture_name()]}))
+             Runner.run(
+               steps,
+               run_opts(run: {__MODULE__, :report_opts, [Registered.self_name()]})
+             )
 
     assert_receive {:ran, opts}
     assert opts[:metadata][:path] == ["workflow:wf-t", "workflow_step:t1"]
@@ -357,7 +353,9 @@ defmodule MimirOrchestration.RunnerTest do
   defp run_wave_with_cap(cap) do
     counter = :"runner_test_counter_#{System.unique_integer([:positive])}"
     {:ok, _} = Agent.start_link(fn -> %{running: 0, peak: 0} end, name: counter)
-    opts = run_opts(run: {__MODULE__, :gated, [capture_name(), counter]}, max_concurrency: cap)
+
+    opts =
+      run_opts(run: {__MODULE__, :gated, [Registered.self_name(), counter]}, max_concurrency: cap)
 
     steps =
       for id <- ["a", "b", "c"],
