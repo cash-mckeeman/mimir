@@ -295,18 +295,21 @@ defmodule MimirOrchestration.RunnerTest do
 
     run_fun = fn
       _t, :fail, _o -> {:error, :kaput}
-      _t, :slow, _o -> Process.sleep(150) && {:ok, :late}
+      _t, :slow, _o -> Process.sleep(100) && {:ok, :late}
+      _t, :slower, _o -> Process.sleep(250) && {:ok, :later}
       _t, input, _o -> {:ok, input}
     end
 
     steps = [
       %{id: "f", target: :t, input: :fail, descriptor: %{}, depends_on: [], route: false},
       %{id: "s", target: :t, input: :slow, descriptor: %{}, depends_on: [], route: false},
+      %{id: "s2", target: :t, input: :slower, descriptor: %{}, depends_on: [], route: false},
       %{id: "n", target: :t, input: 1, descriptor: %{}, depends_on: ["s"], route: false}
     ]
 
     assert {:error, {:step_failed, "f", :kaput}} = Runner.run(steps, run_opts(run_fun: run_fun))
     assert_received {:stopped, "s"}
+    assert_received {:stopped, "s2"}
     refute_received {:stopped, "n"}
   after
     :telemetry.detach("wave-drain")
