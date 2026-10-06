@@ -50,7 +50,7 @@ defmodule Integration.CloudEventTypesContractTest do
               Types.routing_decision(),
               Types.ledger_completion(),
               Types.eval_outcome(),
-              Types.memory(:write)
+              Types.memory(:proposed)
             ]) do
         {:ok, envelope} =
           CloudEvent.new(
