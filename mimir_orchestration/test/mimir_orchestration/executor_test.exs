@@ -51,6 +51,11 @@ defmodule MimirOrchestration.ExecutorTest do
              )
   end
 
+  test "a pid in the params is refused by path" do
+    assert {:error, {:not_serialisable, [:params, "owner"], :pid}} =
+             refused(run: {Run, :ok, [[]]}, params: %{"owner" => self()})
+  end
+
   test "a pid inside a struct is refused" do
     assert {:error, {:not_serialisable, [:run, :extra_args, 0, :host], :pid}} =
              refused(run: {Run, :ok, [%URI{host: self()}]})
