@@ -204,6 +204,50 @@ jobs:
         env: {MIX_ENV: test}
       - run: bash ../.github/scripts/publishability.sh mimir_orchestration
 
+  orchestration-rma-range:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.orchestration == 'true'
+    name: mimir_orchestration RMA ${{ matrix.bound }} (${{ matrix.version }})
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir_orchestration}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The range is mix.exs's @rma_range. ceiling = the highest release in range CI
+          # has run. At 0.7.0 both are 0.10.0, the only release in range.
+          - {bound: floor, version: "0.10.0"}
+          - {bound: ceiling, version: "0.10.0"}
+    env:
+      MIMIR_RMA_PIN: ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: "rma-${{ matrix.bound }}"}
+      - run: mix deps.update req_managed_agents
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - name: The pinned release is the one resolved (mix deps prints the version once it is compiled)
+        run: mix deps | grep -E "^\* req_managed_agents ${MIMIR_RMA_PIN//./\\.} " || { mix deps; exit 1; }
+      - run: mix test test/mimir_orchestration/agent_runner_rma_test.exs test/mimir_orchestration/composition_e2e_test.exs
+
+  orchestration-without-rma:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.orchestration == 'true'
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir_orchestration}}
+    env:
+      MIMIR_WITHOUT_RMA: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: without-rma}
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test --exclude rma
+      - name: The absence test ran (mix test --only exits 1 when no test matches)
+        run: mix test --only without_rma
+
   analytics-test:
     needs: detect-changes
     if: needs.detect-changes.outputs.analytics == 'true'
@@ -279,6 +323,8 @@ jobs:
       - workflows-quality
       - orchestration-test
       - orchestration-quality
+      - orchestration-rma-range
+      - orchestration-without-rma
       - analytics-test
       - analytics-quality
       - integration-test
