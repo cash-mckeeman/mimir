@@ -1,8 +1,9 @@
 defmodule MimirOrchestration.WorkflowsContractTest do
   @moduledoc """
   A compiled plan runs through mimir_workflows' reference runner: each step reaches
-  it as a step spec in the phase its dependencies put it in, and the plan's results
-  come back keyed by step id.
+  it as a step spec in the phase its dependencies put it in, the run's workflow id
+  rides on the workflows runner's events, and the plan's results come back keyed by
+  step id.
   """
   use ExUnit.Case, async: false
 
@@ -57,7 +58,7 @@ defmodule MimirOrchestration.WorkflowsContractTest do
     :telemetry.attach(
       "wf-contract",
       [:mimir_workflows, :step, :start],
-      fn _e, _m, meta, _ -> send(owner, {:wf, meta.step_id, meta.phase}) end,
+      fn _e, _m, meta, _ -> send(owner, {:wf, meta.step_id, meta.phase, meta.workflow_id}) end,
       nil
     )
 
@@ -71,10 +72,14 @@ defmodule MimirOrchestration.WorkflowsContractTest do
             %{
               results: %{"one" => %NodeResult{text: "out-a"}, "two" => %NodeResult{text: "out-a"}}
             }} =
-             Exec.run(compiled, %{"q" => "go"}, router: {Router, []}, agent_runner: StubAgent)
+             Exec.run(compiled, %{"q" => "go"},
+               router: {Router, []},
+               agent_runner: StubAgent,
+               workflow_id: "wf-c"
+             )
 
-    assert_received {:wf, "one", 0}
-    assert_received {:wf, "two", 1}
+    assert_received {:wf, "one", 0, "wf-c"}
+    assert_received {:wf, "two", 1, "wf-c"}
   after
     :telemetry.detach("wf-contract")
   end
