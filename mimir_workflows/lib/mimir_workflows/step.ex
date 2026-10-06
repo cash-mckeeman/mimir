@@ -3,9 +3,9 @@ defmodule MimirWorkflows.Step do
   Behaviour for a single step in a workflow.
 
   Each step receives its own `params` map and an `upstream` map containing
-  the result maps of **exactly the steps it declared as dependencies** —
+  the results of **exactly the steps it declared as dependencies** —
   direct dependencies only, never transitive ancestors. Steps return
-  `{:ok, result}` or `{:error, reason}`.
+  `{:ok, result}` or `{:error, reason}`; a result may be any term.
 
   Step ids are opaque terms: atoms in hand-written pipelines, strings when
   they come from parsed IR. The runner compares ids by value and never
@@ -27,8 +27,8 @@ defmodule MimirWorkflows.Step do
 
   @type step_id :: term()
   @type params :: map()
-  @type upstream :: %{optional(step_id()) => map()}
-  @type result :: map()
+  @type upstream :: %{optional(step_id()) => result()}
+  @type result :: term()
 
   @callback run(params(), upstream()) :: {:ok, result()} | {:error, term()}
 end

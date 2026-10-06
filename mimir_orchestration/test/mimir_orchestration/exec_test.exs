@@ -73,6 +73,24 @@ defmodule MimirOrchestration.ExecTest do
     assert_receive {:agent_run, "stub", %{"question" => "kpis"}, %{step_id: "analyze"}}
   end
 
+  test ":step_timeout reaches the runner" do
+    defmodule SlowRunner do
+      @behaviour MimirOrchestration.AgentRunner
+      @impl true
+      def run(_ref, _input, _opts) do
+        Process.sleep(300)
+        {:ok, %NodeResult{text: "late", raw: %{}}}
+      end
+    end
+
+    assert {:error, {:step_crashed, "analyze", :timeout}} =
+             Exec.run(compiled(), %{"q" => "kpis"},
+               router: {Router, []},
+               agent_runner: SlowRunner,
+               step_timeout: 50
+             )
+  end
+
   test "unknown params are rejected before any step runs" do
     assert {:error, {:missing_params, ["q"]}} =
              Exec.run(compiled(), %{}, router: {Router, []}, agent_runner: StubRunner)

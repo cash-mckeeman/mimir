@@ -1,6 +1,7 @@
 defmodule MimirOrchestration.Runner.Ctx do
   @moduledoc """
-  Internal context for one runner invocation. The public entry point is
+  Internal context for one runner invocation, carried to every step that
+  `MimirWorkflows.Runner` runs for it. The public entry point is
   `MimirOrchestration.Runner.run/2`; hosts pass its keyword options.
   """
 

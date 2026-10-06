@@ -114,4 +114,73 @@ defmodule MimirWorkflows.RunnerOptionsTest do
     assert {:ok, results} = Runner.run(steps, max_concurrency: 2)
     assert results |> Map.values() |> Enum.map(& &1.peak_seen) |> Enum.max() <= 2
   end
+
+  # A failing step and a slow sibling in one phase, and a step in the next phase.
+  defp wave(owner) do
+    [
+      %{id: :fail, module: MimirWorkflows.TestSteps.Fail, params: %{}, depends_on: []},
+      %{
+        id: :slow,
+        module: MimirWorkflows.TestSteps.SlowNotify,
+        params: %{owner: owner, ms: 150, id: :slow},
+        depends_on: []
+      },
+      %{
+        id: :next,
+        module: MimirWorkflows.TestSteps.SlowNotify,
+        params: %{owner: owner, ms: 0, id: :next},
+        depends_on: [:slow]
+      }
+    ]
+  end
+
+  describe ":halt" do
+    test ":immediate, the default, stops the failing phase at once" do
+      assert {:error, {:step_failed, :fail, :boom}} = Runner.run(wave(self()))
+      refute_received {:finished, :slow}
+    end
+
+    test ":after_phase lets the failing phase finish, then stops" do
+      assert {:error, {:step_failed, :fail, :boom}} = Runner.run(wave(self()), halt: :after_phase)
+      assert_received {:finished, :slow}
+      refute_received {:finished, :next}
+    end
+
+    test ":after_phase waits for every sibling, not just the next to finish" do
+      slow = fn id, ms ->
+        %{
+          id: id,
+          module: MimirWorkflows.TestSteps.SlowNotify,
+          params: %{owner: self(), ms: ms, id: id},
+          depends_on: []
+        }
+      end
+
+      steps = [
+        %{id: :fail, module: MimirWorkflows.TestSteps.Fail, params: %{}, depends_on: []},
+        slow.(:slow_a, 100),
+        slow.(:slow_b, 250)
+      ]
+
+      assert {:error, {:step_failed, :fail, :boom}} = Runner.run(steps, halt: :after_phase)
+      assert_received {:finished, :slow_a}
+      assert_received {:finished, :slow_b}
+    end
+
+    test "any other value is refused" do
+      assert_raise ArgumentError, ~r/:halt/, fn -> Runner.run(wave(self()), halt: :eventually) end
+      assert_raise ArgumentError, ~r/:halt/, fn -> Runner.run([], halt: :bogus) end
+    end
+  end
+
+  test "a step's result may be any term" do
+    defmodule TupleStep do
+      @behaviour MimirWorkflows.Step
+      @impl true
+      def run(_params, _upstream), do: {:ok, {:did, 1}}
+    end
+
+    assert {:ok, %{a: {:did, 1}}} =
+             Runner.run([%{id: :a, module: TupleStep, params: %{}, depends_on: []}])
+  end
 end

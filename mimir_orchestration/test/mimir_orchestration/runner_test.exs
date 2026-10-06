@@ -28,8 +28,7 @@ defmodule MimirOrchestration.RunnerTest do
       %{id: "b", target: :t, input: 2, descriptor: %{}, depends_on: ["a"]}
     ]
 
-    assert {:ok,
-            %{results: %{"a" => {:ok, {:did, 1}}, "b" => {:ok, {:did, 2}}}, workflow_id: "wf-t"}} =
+    assert {:ok, %{results: %{"a" => {:did, 1}, "b" => {:did, 2}}, workflow_id: "wf-t"}} =
              Runner.run(steps, run_opts(run_fun: run_fun))
   end
 
@@ -48,13 +47,13 @@ defmodule MimirOrchestration.RunnerTest do
         target: :t,
         descriptor: %{},
         depends_on: ["a"],
-        input: fn results -> {:got, results["a"]} end
+        input: fn upstream -> {:got, upstream["a"]} end
       }
     ]
 
     assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
     assert_receive {:input, "a", "static"}
-    assert_receive {:input, "b", {:got, {:ok, "r-a"}}}
+    assert_receive {:input, "b", {:got, "r-a"}}
   end
 
   test "route: false skips the router and passes correlation metadata only" do
@@ -179,7 +178,14 @@ defmodule MimirOrchestration.RunnerTest do
   test "the step telemetry span carries the workflow/workflow_step path frames" do
     owner = self()
 
-    handler = fn _event, _measurements, meta, _config -> send(owner, {:telemetry_meta, meta}) end
+    # The handler is global and other async modules emit the same event.
+    handler = fn
+      _event, _measurements, %{workflow_id: "wf-t"} = meta, _config ->
+        send(owner, {:telemetry_meta, meta})
+
+      _event, _measurements, _meta, _config ->
+        :ok
+    end
 
     :telemetry.attach(
       "topology-path-test",
@@ -248,12 +254,128 @@ defmodule MimirOrchestration.RunnerTest do
 
     steps = [%{id: "slow", target: :t, input: 1, descriptor: %{}, depends_on: []}]
 
-    # Task.async_stream exits the caller when a step outlives the timeout.
-    assert {:timeout, _} =
-             catch_exit(Runner.run(steps, run_opts(run_fun: run_fun, step_timeout: 50)))
+    assert {:error, {:step_crashed, "slow", :timeout}} =
+             Runner.run(steps, run_opts(run_fun: run_fun, step_timeout: 50))
 
     # Long agent sessions can disable the timeout.
-    assert {:ok, %{results: %{"slow" => {:ok, :late}}}} =
+    assert {:ok, %{results: %{"slow" => :late}}} =
              Runner.run(steps, run_opts(run_fun: run_fun, step_timeout: :infinity))
+  end
+
+  test "a step that exits is a step_crashed error, not an exit of the caller" do
+    run_fun = fn _t, _i, _o -> exit(:boom) end
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false}]
+
+    assert {:error, {:step_crashed, "a", {:exit, :boom}}} =
+             Runner.run(steps, run_opts(run_fun: run_fun))
+  end
+
+  test "a step that returns neither {:ok, _} nor {:error, _} is a tagged error" do
+    run_fun = fn _t, _i, _o -> :done end
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false}]
+
+    assert {:error, {:step_failed, "a", {:bad_return, :done}}} =
+             Runner.run(steps, run_opts(run_fun: run_fun))
+  end
+
+  test "a step's input sees its dependencies' results only" do
+    owner = self()
+
+    run_fun = fn _t, input, _o ->
+      send(owner, {:input, input})
+      {:ok, :r}
+    end
+
+    steps = [
+      %{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false},
+      %{id: "x", target: :t, input: 2, descriptor: %{}, depends_on: [], route: false},
+      %{
+        id: "b",
+        target: :t,
+        descriptor: %{},
+        depends_on: ["a"],
+        route: false,
+        input: fn upstream -> {Map.keys(upstream), upstream["x"]} end
+      }
+    ]
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_receive {:input, {["a"], nil}}
+  end
+
+  test "max_concurrency caps how many steps of a wave run at once, and that many do overlap" do
+    assert %{peak: 1} = run_wave_with_cap(1)
+    assert %{peak: 2} = run_wave_with_cap(2)
+  end
+
+  # Each step announces itself and holds until released, so the peak is read while
+  # the wave is parked at its cap, with no dependence on timing or scheduler count.
+  defp run_wave_with_cap(cap) do
+    owner = self()
+    {:ok, counter} = Agent.start_link(fn -> %{running: 0, peak: 0} end)
+
+    run_fun = fn _t, input, _o ->
+      Agent.update(counter, fn %{running: r, peak: p} ->
+        %{running: r + 1, peak: max(p, r + 1)}
+      end)
+
+      send(owner, {:started, self()})
+      receive do: (:go -> :ok)
+      Agent.update(counter, fn %{running: r} = state -> %{state | running: r - 1} end)
+      {:ok, input}
+    end
+
+    steps =
+      for id <- ["a", "b", "c"],
+          do: %{id: id, target: :t, input: id, descriptor: %{}, depends_on: [], route: false}
+
+    run =
+      Task.async(fn -> Runner.run(steps, run_opts(run_fun: run_fun, max_concurrency: cap)) end)
+
+    parked =
+      for _ <- 1..cap do
+        assert_receive {:started, pid}, 1_000
+        pid
+      end
+
+    refute_receive {:started, _}, 50
+    state = Agent.get(counter, & &1)
+
+    Enum.each(parked, &send(&1, :go))
+
+    for _ <- 1..(length(steps) - cap) do
+      assert_receive {:started, pid}, 1_000
+      send(pid, :go)
+    end
+
+    assert {:ok, _} = Task.await(run)
+    state
+  end
+
+  test "a failing step lets its running siblings finish before the run halts" do
+    owner = self()
+    handler = fn _event, _measurements, meta, _config -> send(owner, {:stopped, meta.step_id}) end
+    :telemetry.attach("wave-drain", [:mimir_orchestration, :step, :stop], handler, nil)
+
+    run_fun = fn
+      _t, :fail, _o -> {:error, :kaput}
+      _t, :slow, _o -> Process.sleep(100) && {:ok, :late}
+      _t, :slower, _o -> Process.sleep(250) && {:ok, :later}
+      _t, input, _o -> {:ok, input}
+    end
+
+    steps = [
+      %{id: "f", target: :t, input: :fail, descriptor: %{}, depends_on: [], route: false},
+      %{id: "s", target: :t, input: :slow, descriptor: %{}, depends_on: [], route: false},
+      %{id: "s2", target: :t, input: :slower, descriptor: %{}, depends_on: [], route: false},
+      %{id: "n", target: :t, input: 1, descriptor: %{}, depends_on: ["s"], route: false}
+    ]
+
+    assert {:error, {:step_failed, "f", :kaput}} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_received {:stopped, "s"}
+    assert_received {:stopped, "s2"}
+    refute_received {:stopped, "n"}
+  after
+    :telemetry.detach("wave-drain")
   end
 end
