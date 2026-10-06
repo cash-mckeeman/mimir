@@ -1,5 +1,6 @@
 defmodule MimirOrchestration.AgentRunner.RMATest do
   use ExUnit.Case, async: true
+  @moduletag :rma
   alias MimirOrchestration.{AgentRunner, NodeResult}
 
   # The session seam is injectable so tests never touch RMA's real providers:

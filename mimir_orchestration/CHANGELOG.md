@@ -26,3 +26,5 @@ First public release.
   `{:routing_failed, :no_grant}`. The raw-decision path, and the placement `base_url` it passed into the model map,
   are gone.
 - A routed step with no `:router` fails with `{:routing_failed, :no_router}` instead of crashing.
+- req_managed_agents is optional (`>= 0.10.0 and < 0.11.0`): without it, the default agent runner returns
+  `{:error, {:missing_dependency, :req_managed_agents}}`.

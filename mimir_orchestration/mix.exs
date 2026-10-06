@@ -5,6 +5,10 @@ defmodule MimirOrchestration.MixProject do
   @version "0.7.0-dev"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
+  # req_managed_agents is optional, with a tested range. The ceiling moves only after
+  # CI has run the suite against the new release, in a patch of this package alone.
+  @rma_range ">= 0.10.0 and < 0.11.0"
+
   def project do
     [
       app: @app,
@@ -32,7 +36,6 @@ defmodule MimirOrchestration.MixProject do
     [
       sibling(:mimir_workflows),
       sibling(:mimir),
-      {:req_managed_agents, "~> 0.10"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:jido, "~> 2.2", optional: true},
@@ -40,7 +43,25 @@ defmodule MimirOrchestration.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
-    ]
+    ] ++ rma_dep()
+  end
+
+  # MIMIR_WITHOUT_RMA=1 removes it from the dependency graph (CI's without-RMA leg);
+  # MIMIR_RMA_PIN=<version> pins one release inside the range (CI's range legs).
+  defp rma_dep do
+    cond do
+      System.get_env("MIMIR_WITHOUT_RMA") == "1" ->
+        []
+
+      pin = System.get_env("MIMIR_RMA_PIN") ->
+        Version.match?(pin, @rma_range) ||
+          Mix.raise("MIMIR_RMA_PIN #{pin} is outside #{@rma_range}")
+
+        [{:req_managed_agents, "== " <> pin, optional: true}]
+
+      true ->
+        [{:req_managed_agents, @rma_range, optional: true}]
+    end
   end
 
   # Path in development; from Hex when publishing. The requirement is the family
