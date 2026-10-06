@@ -146,6 +146,27 @@ defmodule MimirWorkflows.RunnerOptionsTest do
       refute_received {:finished, :next}
     end
 
+    test ":after_phase waits for every sibling, not just the next to finish" do
+      slow = fn id, ms ->
+        %{
+          id: id,
+          module: MimirWorkflows.TestSteps.SlowNotify,
+          params: %{owner: self(), ms: ms, id: id},
+          depends_on: []
+        }
+      end
+
+      steps = [
+        %{id: :fail, module: MimirWorkflows.TestSteps.Fail, params: %{}, depends_on: []},
+        slow.(:slow_a, 100),
+        slow.(:slow_b, 250)
+      ]
+
+      assert {:error, {:step_failed, :fail, :boom}} = Runner.run(steps, halt: :after_phase)
+      assert_received {:finished, :slow_a}
+      assert_received {:finished, :slow_b}
+    end
+
     test "any other value is refused" do
       assert_raise ArgumentError, ~r/:halt/, fn -> Runner.run(wave(self()), halt: :eventually) end
       assert_raise ArgumentError, ~r/:halt/, fn -> Runner.run([], halt: :bogus) end
