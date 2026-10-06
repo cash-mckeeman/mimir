@@ -16,6 +16,9 @@ defmodule MimirOrchestration.Runner do
   `:no_router`, `:no_candidate`, `:no_grant` (a placement without a grant),
   `{:invalid_route_response, other}` (an `{:ok, other}` that is not a
   `Mimir.RouteResponse`), or the router's own error.
+  A router that raises, exits, throws or returns something other than
+  `{:ok, _}` or `{:error, _}` fails the step with `{:step_crashed, step_id, reason}`,
+  not `{:routing_failed, _}`.
   """
   alias MimirOrchestration.Runner.{Ctx, WorkflowStep}
   alias MimirWorkflows.Dag
