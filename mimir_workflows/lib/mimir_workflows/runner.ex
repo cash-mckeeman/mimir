@@ -46,8 +46,8 @@ defmodule MimirWorkflows.Runner do
   | `[:mimir_workflows, :step, :stop]` | `%{duration}` | `%{run_ref, step_id, phase}` ∪ `telemetry_meta` |
   | `[:mimir_workflows, :step, :exception]` | `%{duration}` | `%{run_ref, step_id, phase, reason}` ∪ `telemetry_meta` |
 
-  A step whose task dies gets its `:exception` event from the runner
-  process instead, and its `duration` is a bound, not a measurement:
+  A step whose task dies on its own gets its `:exception` event from the
+  runner process instead, and its `duration` is a bound, not a measurement:
 
     * killed on timeout: `reason: :timeout`, and `duration` is the configured
       deadline, a lower bound on the time since the task was spawned (just
@@ -105,7 +105,8 @@ defmodule MimirWorkflows.Runner do
     * `:telemetry_meta` — map merged into every telemetry event's
       metadata (default `%{}`).
     * `:halt` — what a failure does to the rest of its phase.
-      `:immediate` (the default) stops the phase's other steps at once.
+      `:immediate` (the default) stops the phase's other steps at once; a
+      stopped step emits no `:stop` or `:exception`.
       `:after_phase` lets every step of the phase finish, then returns the
       first failure in completion order; later phases never start. Any
       other value raises `ArgumentError`.
