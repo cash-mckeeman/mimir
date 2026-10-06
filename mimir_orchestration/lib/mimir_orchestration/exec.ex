@@ -3,16 +3,15 @@ defmodule MimirOrchestration.Exec do
   Executes a compiled workflow with required parameters.
 
   Agent steps use the configured `AgentRunner`; tools execute without routing;
-  model steps use `LlmStep`. Templates resolve against completed results, with
-  agent text projected for model prompts. Missing parameters and unresolved
-  references return tagged errors. Successful results are unwrapped.
+  model steps use `LlmStep`. Templates resolve against the results of the step's
+  dependencies, with agent text projected for model prompts. Missing parameters
+  and unresolved references return tagged errors. Results are the steps' values.
   """
   alias MimirOrchestration.{AgentRunner, Compiled, NodeResult, Runner}
   alias MimirOrchestration.Steps.{LlmStep, ToolStep}
   alias MimirWorkflows.Template
 
-  @spec run(Compiled.t(), map(), keyword()) ::
-          {:ok, %{results: map(), workflow_id: String.t()}} | {:error, term()}
+  @spec run(Compiled.t(), map(), keyword()) :: Runner.result()
   def run(%Compiled{} = compiled, params, opts) do
     with :ok <- check_params(compiled, params) do
       agent_runner = Keyword.get(opts, :agent_runner, AgentRunner.RMA)
@@ -21,13 +20,12 @@ defmodule MimirOrchestration.Exec do
 
       runner_opts =
         opts
-        |> Keyword.take([:router, :workflow_id, :max_concurrency])
+        |> Keyword.take([:router, :workflow_id, :max_concurrency, :step_timeout])
         |> Keyword.put(:run_fun, dispatch_fun(agent_runner, agent_runner_opts, llm_opts))
 
       compiled.steps
       |> Enum.map(&lower_step(&1, params))
       |> Runner.run(runner_opts)
-      |> unwrap_results()
     end
   end
 
@@ -43,18 +41,13 @@ defmodule MimirOrchestration.Exec do
       # Compiler.compile's refs pass guarantees resolvability for plans it
       # produced — but Exec.run accepts any %Compiled{}, so a foreign/stale
       # compiler (or hand-built plan) can still hand us a dangling ref. That
-      # must surface as the runner's uniform {:error, _} shape, never a
-      # crashed Task.async_stream task (Runner.dispatch/3 short-circuits on
-      # this tagged error before invoking run_fun).
+      # must surface as the runner's uniform {:error, _} shape (WorkflowStep
+      # short-circuits on this tagged error before invoking run_fun).
       # llm prompts consume text by definition: an agent step's %NodeResult{}
       # (or a tool's "text"-keyed map) contributes its text when interpolated
       # into a prompt (the engine Template has no nested-ref paths, and
       # embedded refs interpolate via to_string/1).
-      ctx_results =
-        case step.kind do
-          "llm" -> results |> unwrap_map() |> textify()
-          _ -> unwrap_map(results)
-        end
+      ctx_results = if step.kind == "llm", do: textify(results), else: results
 
       case Template.resolve(step.input_template, %{results: ctx_results, params: params}) do
         {:ok, resolved} -> resolved
@@ -96,13 +89,6 @@ defmodule MimirOrchestration.Exec do
   defp maybe_put(kw, _k, nil), do: kw
   defp maybe_put(kw, k, v), do: Keyword.put(kw, k, v)
 
-  defp unwrap_map(results) do
-    Map.new(results, fn
-      {id, {:ok, v}} -> {id, v}
-      {id, other} -> {id, other}
-    end)
-  end
-
   defp textify(results) do
     Map.new(results, fn
       {id, %NodeResult{text: text}} when is_binary(text) -> {id, text}
@@ -110,9 +96,4 @@ defmodule MimirOrchestration.Exec do
       pair -> pair
     end)
   end
-
-  defp unwrap_results({:ok, %{results: results} = out}),
-    do: {:ok, %{out | results: unwrap_map(results)}}
-
-  defp unwrap_results(other), do: other
 end

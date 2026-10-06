@@ -28,8 +28,7 @@ defmodule MimirOrchestration.RunnerTest do
       %{id: "b", target: :t, input: 2, descriptor: %{}, depends_on: ["a"]}
     ]
 
-    assert {:ok,
-            %{results: %{"a" => {:ok, {:did, 1}}, "b" => {:ok, {:did, 2}}}, workflow_id: "wf-t"}} =
+    assert {:ok, %{results: %{"a" => {:did, 1}, "b" => {:did, 2}}, workflow_id: "wf-t"}} =
              Runner.run(steps, run_opts(run_fun: run_fun))
   end
 
@@ -48,13 +47,13 @@ defmodule MimirOrchestration.RunnerTest do
         target: :t,
         descriptor: %{},
         depends_on: ["a"],
-        input: fn results -> {:got, results["a"]} end
+        input: fn upstream -> {:got, upstream["a"]} end
       }
     ]
 
     assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
     assert_receive {:input, "a", "static"}
-    assert_receive {:input, "b", {:got, {:ok, "r-a"}}}
+    assert_receive {:input, "b", {:got, "r-a"}}
   end
 
   test "route: false skips the router and passes correlation metadata only" do
@@ -248,12 +247,68 @@ defmodule MimirOrchestration.RunnerTest do
 
     steps = [%{id: "slow", target: :t, input: 1, descriptor: %{}, depends_on: []}]
 
-    # Task.async_stream exits the caller when a step outlives the timeout.
-    assert {:timeout, _} =
-             catch_exit(Runner.run(steps, run_opts(run_fun: run_fun, step_timeout: 50)))
+    assert {:error, {:step_crashed, "slow", :timeout}} =
+             Runner.run(steps, run_opts(run_fun: run_fun, step_timeout: 50))
 
     # Long agent sessions can disable the timeout.
-    assert {:ok, %{results: %{"slow" => {:ok, :late}}}} =
+    assert {:ok, %{results: %{"slow" => :late}}} =
              Runner.run(steps, run_opts(run_fun: run_fun, step_timeout: :infinity))
+  end
+
+  test "a step that exits is a step_crashed error, not an exit of the caller" do
+    run_fun = fn _t, _i, _o -> exit(:boom) end
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false}]
+
+    assert {:error, {:step_crashed, "a", {:exit, :boom}}} =
+             Runner.run(steps, run_opts(run_fun: run_fun))
+  end
+
+  test "a step's input sees its dependencies' results only" do
+    owner = self()
+
+    run_fun = fn _t, input, _o ->
+      send(owner, {:input, input})
+      {:ok, :r}
+    end
+
+    steps = [
+      %{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false},
+      %{id: "x", target: :t, input: 2, descriptor: %{}, depends_on: [], route: false},
+      %{
+        id: "b",
+        target: :t,
+        descriptor: %{},
+        depends_on: ["a"],
+        route: false,
+        input: fn upstream -> {Map.keys(upstream), upstream["x"]} end
+      }
+    ]
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_receive {:input, {["a"], nil}}
+  end
+
+  test "a failing step lets its running siblings finish before the run halts" do
+    owner = self()
+    handler = fn _event, _measurements, meta, _config -> send(owner, {:stopped, meta.step_id}) end
+    :telemetry.attach("wave-drain", [:mimir_orchestration, :step, :stop], handler, nil)
+
+    run_fun = fn
+      _t, :fail, _o -> {:error, :kaput}
+      _t, :slow, _o -> Process.sleep(150) && {:ok, :late}
+      _t, input, _o -> {:ok, input}
+    end
+
+    steps = [
+      %{id: "f", target: :t, input: :fail, descriptor: %{}, depends_on: [], route: false},
+      %{id: "s", target: :t, input: :slow, descriptor: %{}, depends_on: [], route: false},
+      %{id: "n", target: :t, input: 1, descriptor: %{}, depends_on: ["s"], route: false}
+    ]
+
+    assert {:error, {:step_failed, "f", :kaput}} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_received {:stopped, "s"}
+    refute_received {:stopped, "n"}
+  after
+    :telemetry.detach("wave-drain")
   end
 end

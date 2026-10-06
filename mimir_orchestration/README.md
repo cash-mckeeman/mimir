@@ -50,9 +50,10 @@ policy = %Policy{
 ```
 
 `Compiler.compile/2` returns `{:error, diagnostics}` for an invalid plan.
-`Exec.run/3` returns unwrapped step results, or a tagged error when a step
-returns an error. Remaining waves do not run after a failing wave. A crashed or
-timed-out task currently exits the caller rather than returning a step error.
+`Exec.run/3` returns each step's result value, or a tagged error when a step
+fails. The rest of a failing step's wave finishes; later waves do not run. A
+step that crashes or outlives `:step_timeout` returns
+`{:error, {:step_crashed, step_id, reason}}` rather than exiting the caller.
 
 `MimirOrchestration.Eval.plan_score/2` reports compile diagnostics and
 unconsumed, nonterminal steps without executing the workflow.
