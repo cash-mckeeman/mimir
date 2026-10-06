@@ -287,6 +287,20 @@ defmodule MimirOrchestration.RunnerTest do
              Runner.run(steps, router: {NoGrantRouter, []}, run_fun: run_fun)
   end
 
+  test "a router's own error is a routing failure carrying that error" do
+    defmodule DownRouter do
+      @behaviour Mimir.RouterClient
+      @impl true
+      def route(_req, _opts), do: {:error, {:http_error, 503, "down"}}
+    end
+
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+    run_fun = fn _t, _i, _o -> flunk("must not dispatch") end
+
+    assert {:error, {:step_failed, "a", {:routing_failed, {:http_error, 503, "down"}}}} =
+             Runner.run(steps, router: {DownRouter, []}, run_fun: run_fun)
+  end
+
   test "a routed step with no router is a routing failure" do
     steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
     run_fun = fn _t, _i, _o -> flunk("must not dispatch") end
