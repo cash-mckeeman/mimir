@@ -214,9 +214,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The range is mix.exs's @rma_range. ceiling = the highest release in range CI
-          # has run. At 0.7.0 both are 0.10.0, the only release in range.
-          - {bound: floor, version: "0.10.0"}
+          # The range is mix.exs's @rma_range. floor is its lowest release; ceiling is the
+          # highest release in range CI has run, moved by hand. At 0.7.0 both resolve
+          # to 0.10.0, the only release in range.
+          - {bound: floor, version: floor}
           - {bound: ceiling, version: "0.10.0"}
     env:
       MIMIR_RMA_PIN: ${{ matrix.version }}
@@ -227,9 +228,14 @@ jobs:
       - run: mix deps.unlock req_managed_agents && mix deps.get
       - run: mix compile --warnings-as-errors
       - name: mix.exs declares the pin (a pin mix.exs ignores would still resolve the locked release)
-        run: mix run --no-start --no-compile --no-deps-check -e 'IO.puts(elem(List.keyfind(Mix.Project.config()[:deps], :req_managed_agents, 0), 1))' | grep -qx "== $MIMIR_RMA_PIN"
+        run: |
+          declared=$(mix run --no-start --no-compile --no-deps-check -e 'IO.puts(elem(List.keyfind(Mix.Project.config()[:deps], :req_managed_agents, 0), 1))')
+          echo "declared: $declared"
+          case "$declared" in "== "[0-9]*) ;; *) exit 1 ;; esac
+          [ "$MIMIR_RMA_PIN" = floor ] || [ "$declared" = "== $MIMIR_RMA_PIN" ]
+          echo "RMA_VERSION=${declared#== }" >> "$GITHUB_ENV"
       - name: The pinned release is the one resolved (mix deps prints the version once it is compiled)
-        run: mix deps | grep -E "^\* req_managed_agents ${MIMIR_RMA_PIN//./\\.} " || { mix deps; exit 1; }
+        run: mix deps | grep -E "^\* req_managed_agents ${RMA_VERSION//./\\.} " || { mix deps; exit 1; }
       - run: mix test test/mimir_orchestration/agent_runner_rma_test.exs test/mimir_orchestration/composition_e2e_test.exs
 
   orchestration-without-rma:

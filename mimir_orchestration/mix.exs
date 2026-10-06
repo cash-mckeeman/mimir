@@ -47,7 +47,8 @@ defmodule MimirOrchestration.MixProject do
   end
 
   # MIMIR_WITHOUT_RMA=1 removes it from the dependency graph (CI's without-RMA leg);
-  # MIMIR_RMA_PIN=<version> pins one release inside the range (CI's range legs).
+  # MIMIR_RMA_PIN=<version> pins one release inside the range, "floor" the lowest one
+  # (CI's range legs).
   # Publishing refuses both, so a tarball never carries a CI-only requirement.
   defp rma_dep do
     if System.get_env("MIMIR_PUBLISH") in ["1", "floor"] and
@@ -70,8 +71,11 @@ defmodule MimirOrchestration.MixProject do
     end
   end
 
-  # A pin is an exact MAJOR.MINOR.PATCH inside the range. Empty counts as malformed,
-  # not unset, so a blank CI variable fails instead of running unpinned.
+  # A pin is an exact MAJOR.MINOR.PATCH inside the range, or "floor" for the range's
+  # lowest release. Empty counts as malformed, not unset, so a blank CI variable
+  # fails instead of running unpinned.
+  defp checked_pin("floor"), do: checked_pin(rma_floor())
+
   defp checked_pin(pin) do
     case Version.parse(pin) do
       {:ok, _} ->
@@ -83,6 +87,14 @@ defmodule MimirOrchestration.MixProject do
       :error ->
         Mix.raise("MIMIR_RMA_PIN #{inspect(pin)} is not a MAJOR.MINOR.PATCH version")
     end
+  end
+
+  # ">= 0.10.0 and < 0.11.0" -> "0.10.0".
+  defp rma_floor do
+    ">= " <> rest = @rma_range
+    [version | _] = String.split(rest, " and ")
+    {:ok, _} = Version.parse(version)
+    version
   end
 
   # Path in development; from Hex when publishing. The requirement is the family
