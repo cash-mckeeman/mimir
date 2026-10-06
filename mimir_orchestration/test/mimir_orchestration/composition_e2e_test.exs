@@ -100,7 +100,7 @@ defmodule MimirOrchestration.CompositionE2ETest do
     end
 
     # Minimal live check: the composition's flat route request reaches the real
-    # gateway, and the reply parses as a Mimir.RouteResponse.
+    # gateway, and the reply, parsed or rejected, comes back as a routing result.
     defmodule LiveRouter do
       @behaviour Mimir.RouterClient
       @impl true
