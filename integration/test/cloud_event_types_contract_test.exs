@@ -46,14 +46,21 @@ defmodule Integration.CloudEventTypesContractTest do
         envelope
       end
 
+    sent = [
+      routing_decision: Types.routing_decision(),
+      ledger_completion: Types.ledger_completion(),
+      eval_outcome: Types.eval_outcome(),
+      memory: Types.memory(:proposed)
+    ]
+
+    helpers = Types.__info__(:functions) -- [for_event: 1, namespace: 0]
+
+    assert Enum.sort(Keyword.keys(helpers)) == Enum.sort(Keyword.keys(sent)),
+           "Mimir.CloudEvent.Types helpers #{inspect(helpers)} differ from those sent here: " <>
+             inspect(Keyword.keys(sent))
+
     records =
-      for {type, i} <-
-            Enum.with_index([
-              Types.routing_decision(),
-              Types.ledger_completion(),
-              Types.eval_outcome(),
-              Types.memory(:proposed)
-            ]) do
+      for {type, i} <- Enum.with_index(Keyword.values(sent)) do
         {:ok, envelope} =
           CloudEvent.new(
             id: "rec-#{i}",
@@ -65,16 +72,6 @@ defmodule Integration.CloudEventTypesContractTest do
 
         envelope
       end
-
-    helpers = Types.__info__(:functions) -- [for_event: 1, namespace: 0]
-
-    assert Enum.sort(helpers) == [
-             eval_outcome: 0,
-             ledger_completion: 0,
-             memory: 1,
-             routing_decision: 0
-           ],
-           "a Mimir.CloudEvent.Types helper has no envelope here: #{inspect(helpers)}"
 
     envelopes = lifecycle ++ records
     path = Path.join(dir, "gateway.jsonl")
