@@ -54,13 +54,25 @@ defmodule MimirOrchestration.MixProject do
         []
 
       pin = System.get_env("MIMIR_RMA_PIN") ->
-        Version.match?(pin, @rma_range, allow_pre: false) ||
-          Mix.raise("MIMIR_RMA_PIN #{pin} is outside #{@rma_range}")
-
-        [{:req_managed_agents, "== " <> pin, optional: true}]
+        [{:req_managed_agents, "== " <> checked_pin(pin), optional: true}]
 
       true ->
         [{:req_managed_agents, @rma_range, optional: true}]
+    end
+  end
+
+  # A pin is an exact MAJOR.MINOR.PATCH inside the range. Empty counts as malformed,
+  # not unset, so a blank CI variable fails instead of running unpinned.
+  defp checked_pin(pin) do
+    case Version.parse(pin) do
+      {:ok, _} ->
+        Version.match?(pin, @rma_range, allow_pre: false) ||
+          Mix.raise("MIMIR_RMA_PIN #{inspect(pin)} is outside #{@rma_range}")
+
+        pin
+
+      :error ->
+        Mix.raise("MIMIR_RMA_PIN #{inspect(pin)} is not a MAJOR.MINOR.PATCH version")
     end
   end
 
