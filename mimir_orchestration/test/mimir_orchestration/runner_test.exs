@@ -303,7 +303,15 @@ defmodule MimirOrchestration.RunnerTest do
     assert_receive {:input, {["a"], nil}}
   end
 
-  test "max_concurrency caps how many steps of a wave run at once" do
+  test "max_concurrency caps how many steps of a wave run at once, and that many do overlap" do
+    assert %{peak: 1} = run_wave_with_cap(1)
+    assert %{peak: 2} = run_wave_with_cap(2)
+  end
+
+  # Each step announces itself and holds until released, so the peak is read while
+  # the wave is parked at its cap, with no dependence on timing or scheduler count.
+  defp run_wave_with_cap(cap) do
+    owner = self()
     {:ok, counter} = Agent.start_link(fn -> %{running: 0, peak: 0} end)
 
     run_fun = fn _t, input, _o ->
@@ -311,7 +319,8 @@ defmodule MimirOrchestration.RunnerTest do
         %{running: r + 1, peak: max(p, r + 1)}
       end)
 
-      Process.sleep(30)
+      send(owner, {:started, self()})
+      receive do: (:go -> :ok)
       Agent.update(counter, fn %{running: r} = state -> %{state | running: r - 1} end)
       {:ok, input}
     end
@@ -320,8 +329,27 @@ defmodule MimirOrchestration.RunnerTest do
       for id <- ["a", "b", "c"],
           do: %{id: id, target: :t, input: id, descriptor: %{}, depends_on: [], route: false}
 
-    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun, max_concurrency: 1))
-    assert %{peak: 1} = Agent.get(counter, & &1)
+    run =
+      Task.async(fn -> Runner.run(steps, run_opts(run_fun: run_fun, max_concurrency: cap)) end)
+
+    parked =
+      for _ <- 1..cap do
+        assert_receive {:started, pid}, 1_000
+        pid
+      end
+
+    refute_receive {:started, _}, 50
+    state = Agent.get(counter, & &1)
+
+    Enum.each(parked, &send(&1, :go))
+
+    for _ <- 1..(length(steps) - cap) do
+      assert_receive {:started, pid}, 1_000
+      send(pid, :go)
+    end
+
+    assert {:ok, _} = Task.await(run)
+    state
   end
 
   test "a failing step lets its running siblings finish before the run halts" do
