@@ -14,3 +14,5 @@ First public release.
   caller.
 - A step's input sees its dependencies' results only, not every earlier result.
 - `Exec.run/3` forwards `:step_timeout`.
+- A step that returns anything other than `{:ok, _}` or `{:error, _}` fails with
+  `{:error, {:step_failed, step_id, {:bad_return, term}}}`.

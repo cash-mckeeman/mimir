@@ -263,6 +263,14 @@ defmodule MimirOrchestration.RunnerTest do
              Runner.run(steps, run_opts(run_fun: run_fun))
   end
 
+  test "a step that returns neither {:ok, _} nor {:error, _} is a tagged error" do
+    run_fun = fn _t, _i, _o -> :done end
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: [], route: false}]
+
+    assert {:error, {:step_failed, "a", {:bad_return, :done}}} =
+             Runner.run(steps, run_opts(run_fun: run_fun))
+  end
+
   test "a step's input sees its dependencies' results only" do
     owner = self()
 
