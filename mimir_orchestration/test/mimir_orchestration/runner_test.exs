@@ -178,7 +178,14 @@ defmodule MimirOrchestration.RunnerTest do
   test "the step telemetry span carries the workflow/workflow_step path frames" do
     owner = self()
 
-    handler = fn _event, _measurements, meta, _config -> send(owner, {:telemetry_meta, meta}) end
+    # The handler is global and other async modules emit the same event.
+    handler = fn
+      _event, _measurements, %{workflow_id: "wf-t"} = meta, _config ->
+        send(owner, {:telemetry_meta, meta})
+
+      _event, _measurements, _meta, _config ->
+        :ok
+    end
 
     :telemetry.attach(
       "topology-path-test",
