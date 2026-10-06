@@ -6,7 +6,7 @@ defmodule MimirFamily.MixProject do
   @publish ~w(mimir mimir_workflows mimir_orchestration)
 
   # Every sibling, in dependency order. The root aliases run in each one.
-  @siblings ~w(mimir mimir_workflows mimir_orchestration mimir_analytics)
+  @siblings ~w(mimir mimir_workflows mimir_orchestration mimir_analytics integration)
 
   def project do
     [app: :mimir_family, version: "0.0.0", elixir: "~> 1.18", deps: [], aliases: aliases()]
