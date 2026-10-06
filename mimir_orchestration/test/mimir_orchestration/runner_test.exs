@@ -3,22 +3,37 @@ defmodule MimirOrchestration.RunnerTest do
   alias MimirOrchestration.Runner
 
   defmodule FakeRouter do
-    @behaviour MimirOrchestration.RouterClient
+    @behaviour Mimir.RouterClient
     @impl true
     def route(req, opts) do
-      if pid = opts[:capture], do: send(pid, {:router_request, req.step_id, req})
+      if name = opts[:capture], do: send(name, {:router_request, req.step_id, req})
 
-      {:ok,
-       %{
-         "placement" => %{"model" => "fleet-fast", "lane" => "test"},
-         "grant" => %{"key" => "sk-test", "budget_microdollars" => 100_000},
-         "decision_id" => "decision-#{req.step_id}"
-       }}
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "placement" => %{"model" => "fleet-fast", "lane" => "test"},
+        "grant" => %{"key" => "sk-test", "budget_microdollars" => 100_000},
+        "decision_id" => "decision-#{req.step_id}"
+      })
     end
   end
 
   defp run_opts(extra),
-    do: Keyword.merge([router: {FakeRouter, [capture: self()]}, workflow_id: "wf-t"], extra)
+    do:
+      Keyword.merge([router: {FakeRouter, [capture: capture_name()]}, workflow_id: "wf-t"], extra)
+
+  # The router captures to the calling process's registered name, not its pid, so
+  # router opts stay plain data.
+  defp capture_name do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, name} when is_atom(name) ->
+        name
+
+      _unregistered ->
+        name = :"runner_test_#{System.unique_integer([:positive])}"
+        Process.register(self(), name)
+        name
+    end
+  end
 
   test "waves execute in dependency order; results keyed by id" do
     run_fun = fn _t, input, _o -> {:ok, {:did, input}} end
@@ -87,26 +102,25 @@ defmodule MimirOrchestration.RunnerTest do
     assert {:error, {:step_failed, "a", :kaput}} = Runner.run(steps, run_opts(run_fun: run_fun))
   end
 
-  describe "typed decisions (mimir 0.3.0)" do
+  describe "a placement with a grant" do
     defmodule TypedRouter do
-      @behaviour MimirOrchestration.RouterClient
+      @behaviour Mimir.RouterClient
       @impl true
       def route(req, _opts) do
-        {:ok,
-         %{
-           "verdict" => "placement",
-           "decision_id" => "dec-#{req.step_id}",
-           "placement" => %{"model" => "fleet-fast", "lane" => "bedrock", "runtime" => "local"},
-           "grant" => %{
-             "key" => "sk-grant",
-             "budget_microdollars" => 5_000,
-             "expires_at" => "2026-07-09T00:00:00Z"
-           }
-         }}
+        Mimir.RouteResponse.new(%{
+          "verdict" => "placement",
+          "decision_id" => "dec-#{req.step_id}",
+          "placement" => %{"model" => "fleet-fast", "lane" => "bedrock", "runtime" => "local"},
+          "grant" => %{
+            "key" => "sk-grant",
+            "budget_microdollars" => 5_000,
+            "expires_at" => "2026-07-09T00:00:00Z"
+          }
+        })
       end
     end
 
-    test "typed decision threads turn_guard + decision_id metadata" do
+    test "dispatch gets turn_guard and decision_id metadata" do
       owner = self()
 
       run_fun = fn _t, _i, opts ->
@@ -127,22 +141,6 @@ defmodule MimirOrchestration.RunnerTest do
       assert opts[:metadata][:mimir_request_id] == "dec-a"
       assert :cont == opts[:turn_guard].(%{usage: %{input_tokens: 0, output_tokens: 0}, turns: 0})
     end
-
-    test "raw/legacy decisions still take the raw path" do
-      owner = self()
-
-      run_fun = fn _t, _i, opts ->
-        send(owner, {:opts, opts})
-        {:ok, :done}
-      end
-
-      steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
-      assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
-
-      assert_receive {:opts, opts}
-      refute Keyword.has_key?(opts, :turn_guard)
-      assert opts[:metadata][:mimir_request_id] == "decision-a"
-    end
   end
 
   test "fanout_hint and parent_step_id reach the router request" do
@@ -158,6 +156,35 @@ defmodule MimirOrchestration.RunnerTest do
     assert_receive {:router_request, "b", req}
     assert req.fanout_hint == 2 and req.parent_step_id == "a"
     assert req.path == ["workflow:wf-t", "workflow_step:b"]
+  end
+
+  test "a step with several dependencies sends its first as parent_step_id" do
+    run_fun = fn _t, i, _o -> {:ok, i} end
+
+    steps = [
+      %{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []},
+      %{id: "b", target: :t, input: 2, descriptor: %{}, depends_on: []},
+      %{id: "c", target: :t, input: 3, descriptor: %{}, depends_on: ["b", "a"]}
+    ]
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_receive {:router_request, "c", req}
+    assert req.parent_step_id == "b"
+  end
+
+  test "a descriptor's own correlation names do not reach the router beside the runner's" do
+    run_fun = fn _t, i, _o -> {:ok, i} end
+
+    names = ~w(workflow_id step_id parent_step_id fanout_hint path)
+    descriptor = Map.new(names, &{&1, "spoof"}) |> Map.put("task_class", "t")
+    steps = [%{id: "a", target: :t, input: 1, descriptor: descriptor, depends_on: []}]
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_receive {:router_request, "a", req}
+    assert req.workflow_id == "wf-t"
+    assert req.path == ["workflow:wf-t", "workflow_step:a"]
+    assert req["task_class"] == "t"
+    for name <- names, do: refute(Map.has_key?(req, name), "#{name} reached the router")
   end
 
   test "route: false metadata carries the workflow/workflow_step path frames" do
@@ -204,39 +231,12 @@ defmodule MimirOrchestration.RunnerTest do
     :telemetry.detach("topology-path-test")
   end
 
-  test "raw-path placement base_url threads into the model map when present" do
-    defmodule BaseUrlRouter do
-      @behaviour MimirOrchestration.RouterClient
-      @impl true
-      def route(_req, _opts) do
-        {:ok,
-         %{
-           "placement" => %{"model" => "m1", "base_url" => "https://mimir.test"},
-           "grant" => %{"key" => "sk-x"},
-           "decision_id" => "d1"
-         }}
-      end
-    end
-
-    owner = self()
-
-    run_fun = fn _t, _i, opts ->
-      send(owner, {:model, opts[:model]})
-      {:ok, :done}
-    end
-
-    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
-    assert {:ok, _} = Runner.run(steps, router: {BaseUrlRouter, []}, run_fun: run_fun)
-
-    assert_receive {:model, model}
-    assert model == %{"key" => "sk-x", "model" => "m1", "base_url" => "https://mimir.test"}
-  end
-
   test "a no_candidate verdict is a routing failure, never a nil-grant dispatch" do
     defmodule NoCandidateRouter do
-      @behaviour MimirOrchestration.RouterClient
+      @behaviour Mimir.RouterClient
       @impl true
-      def route(_req, _opts), do: {:ok, %{"verdict" => "no_candidate", "decision_id" => "d1"}}
+      def route(_req, _opts),
+        do: Mimir.RouteResponse.new(%{"verdict" => "no_candidate", "decision_id" => "d1"})
     end
 
     run_fun = fn _t, _i, _o -> flunk("run_fun must not be called on no_candidate") end
@@ -244,6 +244,57 @@ defmodule MimirOrchestration.RunnerTest do
 
     assert {:error, {:step_failed, "a", {:routing_failed, :no_candidate}}} =
              Runner.run(steps, router: {NoCandidateRouter, []}, run_fun: run_fun)
+  end
+
+  test "an {:ok, _} that is not a RouteResponse is a routing failure" do
+    defmodule MapRouter do
+      @behaviour Mimir.RouterClient
+      @impl true
+      def route(_req, _opts), do: {:ok, %{"placement" => %{"model" => "m"}}}
+    end
+
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+    run_fun = fn _t, _i, _o -> flunk("must not dispatch") end
+
+    assert {:error, {:step_failed, "a", {:routing_failed, {:invalid_route_response, %{}}}}} =
+             Runner.run(steps, router: {MapRouter, []}, run_fun: run_fun)
+  end
+
+  test "a placement with no grant is a routing failure, never a dispatch" do
+    defmodule NoGrantRouter do
+      @behaviour Mimir.RouterClient
+      @impl true
+      def route(_req, _opts),
+        do: Mimir.RouteResponse.new(%{"verdict" => "placement", "placement" => %{"model" => "m"}})
+    end
+
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+    run_fun = fn _t, _i, _o -> flunk("must not dispatch") end
+
+    assert {:error, {:step_failed, "a", {:routing_failed, :no_grant}}} =
+             Runner.run(steps, router: {NoGrantRouter, []}, run_fun: run_fun)
+  end
+
+  test "a router's own error is a routing failure carrying that error" do
+    defmodule DownRouter do
+      @behaviour Mimir.RouterClient
+      @impl true
+      def route(_req, _opts), do: {:error, {:http_error, 503, "down"}}
+    end
+
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+    run_fun = fn _t, _i, _o -> flunk("must not dispatch") end
+
+    assert {:error, {:step_failed, "a", {:routing_failed, {:http_error, 503, "down"}}}} =
+             Runner.run(steps, router: {DownRouter, []}, run_fun: run_fun)
+  end
+
+  test "a routed step with no router is a routing failure" do
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+    run_fun = fn _t, _i, _o -> flunk("must not dispatch") end
+
+    assert {:error, {:step_failed, "a", {:routing_failed, :no_router}}} =
+             Runner.run(steps, run_fun: run_fun)
   end
 
   test ":step_timeout is honored, and :infinity is the long-session escape hatch" do

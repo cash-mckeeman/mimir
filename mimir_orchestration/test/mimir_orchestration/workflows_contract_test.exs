@@ -10,16 +10,16 @@ defmodule MimirOrchestration.WorkflowsContractTest do
   alias MimirOrchestration.{Compiler, Exec, NodeResult, Policy}
 
   defmodule Router do
-    @behaviour MimirOrchestration.RouterClient
+    @behaviour Mimir.RouterClient
     @impl true
-    def route(req, _opts),
-      do:
-        {:ok,
-         %{
-           "placement" => %{"model" => "m"},
-           "grant" => %{"key" => "k"},
-           "decision_id" => "d-#{req.step_id}"
-         }}
+    def route(req, _opts) do
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "placement" => %{"model" => "m"},
+        "grant" => %{"key" => "k"},
+        "decision_id" => "d-#{req.step_id}"
+      })
+    end
   end
 
   defmodule StubAgent do

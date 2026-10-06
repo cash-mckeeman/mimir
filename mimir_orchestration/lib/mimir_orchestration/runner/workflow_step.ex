@@ -5,6 +5,9 @@ defmodule MimirOrchestration.Runner.WorkflowStep do
   # through run_fun, all inside the [:mimir_orchestration, :step] span.
   @behaviour MimirWorkflows.Step
 
+  @correlation_keys [:path, :workflow_id, :step_id, :fanout_hint, :parent_step_id]
+  @correlation_names Enum.map(@correlation_keys, &Atom.to_string/1)
+
   @impl true
   def run(%{step: step, ctx: ctx, fanout: fanout}, upstream) do
     meta = %{workflow_id: ctx.workflow_id, step_id: step.id, path: topology_path(ctx, step)}
@@ -33,11 +36,36 @@ defmodule MimirOrchestration.Runner.WorkflowStep do
     ctx.run_fun.(step.target, step.input, metadata_opts(step, ctx, %{}))
   end
 
-  defp dispatch(step, fanout, ctx) do
-    {router_mod, router_opts} = ctx.router
+  defp dispatch(_step, _fanout, %{router: nil}), do: {:error, {:routing_failed, :no_router}}
 
-    request = %{
-      descriptor: step.descriptor,
+  defp dispatch(step, fanout, ctx) do
+    {router, router_opts} = ctx.router
+
+    case router.route(route_request(step, fanout, ctx), router_opts) do
+      {:ok, %Mimir.RouteResponse{verdict: :no_candidate}} ->
+        {:error, {:routing_failed, :no_candidate}}
+
+      {:ok, %Mimir.RouteResponse{verdict: :placement, grant: nil}} ->
+        {:error, {:routing_failed, :no_grant}}
+
+      {:ok, %Mimir.RouteResponse{verdict: :placement} = resp} ->
+        ctx.run_fun.(step.target, step.input, routed_opts(step, ctx, resp))
+
+      {:ok, other} ->
+        {:error, {:routing_failed, {:invalid_route_response, other}}}
+
+      {:error, reason} ->
+        {:error, {:routing_failed, reason}}
+    end
+  end
+
+  # Flat, as Mimir.RouterClient.route/2 documents: the descriptor's fields at the
+  # top level, plus the correlation ids. A descriptor's own correlation names are
+  # dropped, in atom and string form, so the runner's values are the only ones sent.
+  defp route_request(step, fanout, ctx) do
+    step.descriptor
+    |> Map.drop(@correlation_keys ++ @correlation_names)
+    |> Map.merge(%{
       workflow_id: ctx.workflow_id,
       step_id: step.id,
       # Data-dependency edge ("whose output did I consume"), distinct from
@@ -45,78 +73,14 @@ defmodule MimirOrchestration.Runner.WorkflowStep do
       parent_step_id: List.first(step.depends_on),
       fanout_hint: fanout,
       path: topology_path(ctx, step)
-    }
-
-    case router_mod.route(request, router_opts) do
-      {:ok, decision} -> routed_dispatch(step, decision, ctx)
-      {:error, reason} -> {:error, {:routing_failed, reason}}
-    end
+    })
   end
 
-  # A no-candidate verdict is a routing failure; never dispatch a nil grant.
-  defp routed_dispatch(_step, %{"verdict" => "no_candidate"}, _ctx),
-    do: {:error, {:routing_failed, :no_candidate}}
-
-  defp routed_dispatch(_step, %{verdict: "no_candidate"}, _ctx),
-    do: {:error, {:routing_failed, :no_candidate}}
-
-  defp routed_dispatch(step, decision, ctx) do
-    case typed_route(decision) do
-      {:ok, resp} ->
-        ctx.run_fun.(
-          step.target,
-          step.input,
-          metadata_opts(step, ctx, %{
-            mimir_request_id: resp.decision_id,
-            decision_id: resp.decision_id
-          })
-          |> Keyword.put(
-            :model,
-            decision
-            |> raw_model()
-            |> Map.merge(%{"key" => resp.grant.key, "model" => resp.placement.model})
-          )
-          |> Keyword.put(:turn_guard, Mimir.Guard.for_grant(resp.grant, resp.placement.model))
-        )
-
-      :raw ->
-        ctx.run_fun.(
-          step.target,
-          step.input,
-          metadata_opts(step, ctx, %{mimir_request_id: decision["decision_id"]})
-          |> Keyword.put(:model, raw_model(decision))
-        )
-    end
-  end
-
-  # Raw-path placements (in-process/test routers) may carry a base_url the
-  # host needs to build its model config; production gateway placements
-  # never send one. Present only when the placement carries it.
-  defp raw_model(decision) do
-    model = %{
-      "key" => get_in(decision, ["grant", "key"]),
-      "model" => get_in(decision, ["placement", "model"])
-    }
-
-    case get_in(decision, ["placement", "base_url"]) do
-      nil -> model
-      base_url -> Map.put(model, "base_url", base_url)
-    end
-  end
-
-  # Typed decisions get typed handling and a turn guard;
-  # anything unparseable (scripted test routers, legacy gateways) stays raw.
-  defp typed_route(decision) do
-    case Mimir.RouteResponse.new(decision) do
-      {:ok, %Mimir.RouteResponse{verdict: :placement, grant: grant} = resp}
-      when not is_nil(grant) ->
-        {:ok, resp}
-
-      _ ->
-        :raw
-    end
-  rescue
-    _ -> :raw
+  defp routed_opts(step, ctx, resp) do
+    step
+    |> metadata_opts(ctx, %{mimir_request_id: resp.decision_id, decision_id: resp.decision_id})
+    |> Keyword.put(:model, %{"key" => resp.grant.key, "model" => resp.placement.model})
+    |> Keyword.put(:turn_guard, Mimir.Guard.for_grant(resp.grant, resp.placement.model))
   end
 
   defp metadata_opts(step, ctx, extra) do
