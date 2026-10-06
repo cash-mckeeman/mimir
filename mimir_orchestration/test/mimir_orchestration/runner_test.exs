@@ -199,6 +199,21 @@ defmodule MimirOrchestration.RunnerTest do
     assert req.path == ["workflow:wf-t", "workflow_step:b"]
   end
 
+  test "a descriptor's own correlation names do not reach the router beside the runner's" do
+    run_fun = fn _t, i, _o -> {:ok, i} end
+
+    descriptor = %{"task_class" => "t", "workflow_id" => "spoof", "path" => ["spoof"]}
+    steps = [%{id: "a", target: :t, input: 1, descriptor: descriptor, depends_on: []}]
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_receive {:router_request, "a", req}
+    assert req.workflow_id == "wf-t"
+    assert req.path == ["workflow:wf-t", "workflow_step:a"]
+    assert req["task_class"] == "t"
+    refute Map.has_key?(req, "workflow_id")
+    refute Map.has_key?(req, "path")
+  end
+
   test "route: false metadata carries the workflow/workflow_step path frames" do
     owner = self()
 

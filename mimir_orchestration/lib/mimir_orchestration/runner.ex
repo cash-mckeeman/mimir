@@ -11,6 +11,7 @@ defmodule MimirOrchestration.Runner do
 
   The route request is flat: the step descriptor's fields at the top level, plus
   `:workflow_id`, `:step_id`, `:parent_step_id`, `:fanout_hint` and `:path`. A
+  descriptor that carries any of those names loses them: the runner's values win. A
   routed step fails with `{:routing_failed, reason}`, where `reason` is
   `:no_router`, `:no_candidate`, `:no_grant` (a placement without a grant),
   `{:invalid_route_response, other}` (an `{:ok, other}` that is not a

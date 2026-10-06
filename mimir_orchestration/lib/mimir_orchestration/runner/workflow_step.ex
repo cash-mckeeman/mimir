@@ -5,6 +5,9 @@ defmodule MimirOrchestration.Runner.WorkflowStep do
   # through run_fun, all inside the [:mimir_orchestration, :step] span.
   @behaviour MimirWorkflows.Step
 
+  @correlation_keys [:path, :workflow_id, :step_id, :fanout_hint, :parent_step_id]
+  @correlation_names Enum.map(@correlation_keys, &Atom.to_string/1)
+
   @impl true
   def run(%{step: step, ctx: ctx, fanout: fanout}, upstream) do
     meta = %{workflow_id: ctx.workflow_id, step_id: step.id, path: topology_path(ctx, step)}
@@ -57,9 +60,12 @@ defmodule MimirOrchestration.Runner.WorkflowStep do
   end
 
   # Flat, as Mimir.RouterClient.route/2 documents: the descriptor's fields at the
-  # top level, plus the correlation ids.
+  # top level, plus the correlation ids. A descriptor's own correlation names are
+  # dropped, in atom and string form, so the runner's values are the only ones sent.
   defp route_request(step, fanout, ctx) do
-    Map.merge(step.descriptor, %{
+    step.descriptor
+    |> Map.drop(@correlation_keys ++ @correlation_names)
+    |> Map.merge(%{
       workflow_id: ctx.workflow_id,
       step_id: step.id,
       # Data-dependency edge ("whose output did I consume"), distinct from
