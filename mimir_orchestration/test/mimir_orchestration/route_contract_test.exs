@@ -88,7 +88,11 @@ defmodule MimirOrchestration.RouteContractTest do
           "task_class" => "extract",
           "budget_ceiling_microdollars" => 50_000,
           "latency_tolerance_ms" => 30_000,
-          "capabilities" => ["tools"]
+          "capabilities" => ["tools"],
+          "runtime_preference" => "local",
+          "expected_tokens" => %{"in" => 100, "out" => 50},
+          "agent" => %{"digest" => "sha256:contract"},
+          "max_outcome_iterations" => 2
         }
       }
     ]
@@ -106,7 +110,11 @@ defmodule MimirOrchestration.RouteContractTest do
              task_class: "extract",
              capabilities: [:tools],
              budget_ceiling_microdollars: 50_000,
-             latency_tolerance_ms: 30_000
+             latency_tolerance_ms: 30_000,
+             runtime_preference: :local,
+             expected_tokens: %{in: 100, out: 50},
+             agent: %{digest: "sha256:contract", name: nil, version: nil},
+             max_outcome_iterations: 2
            }
 
     assert %{
