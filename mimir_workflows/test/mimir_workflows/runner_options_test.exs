@@ -151,4 +151,15 @@ defmodule MimirWorkflows.RunnerOptionsTest do
       assert_raise ArgumentError, ~r/:halt/, fn -> Runner.run([], halt: :bogus) end
     end
   end
+
+  test "a step's result may be any term" do
+    defmodule TupleStep do
+      @behaviour MimirWorkflows.Step
+      @impl true
+      def run(_params, _upstream), do: {:ok, {:did, 1}}
+    end
+
+    assert {:ok, %{a: {:did, 1}}} =
+             Runner.run([%{id: :a, module: TupleStep, params: %{}, depends_on: []}])
+  end
 end

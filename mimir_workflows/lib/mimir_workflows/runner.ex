@@ -31,7 +31,7 @@ defmodule MimirWorkflows.Runner do
 
   ## Return value
 
-      {:ok, %{step_id => result_map}}
+      {:ok, %{step_id => result}}
       | {:error, {:invalid, :cyclic | {:unknown_dependency, term()}}}
       | {:error, {:step_failed, step_id, reason}}
       | {:error, {:step_crashed, step_id, reason}}
@@ -110,7 +110,7 @@ defmodule MimirWorkflows.Runner do
       first failure in completion order; later phases never start. Any
       other value raises `ArgumentError`.
   """
-  @spec run([step_spec()], keyword()) :: {:ok, %{step_id() => map()}} | {:error, error()}
+  @spec run([step_spec()], keyword()) :: {:ok, %{step_id() => term()}} | {:error, error()}
   def run(steps, opts \\ []) do
     halt = Keyword.get(opts, :halt, :immediate)
 

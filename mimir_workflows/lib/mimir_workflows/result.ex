@@ -7,7 +7,8 @@ defmodule MimirWorkflows.Result do
 
       %{"input_tokens" => 120, "output_tokens" => 40, "calls" => 1}
 
-  Missing keys count as zero; steps without `"usage"` contribute nothing.
+  Missing keys count as zero; results that are not maps, and maps without
+  `"usage"`, contribute nothing.
   Hosts price the folded totals themselves (the pricing oracle is a host
   concern, never this library's).
   """
@@ -17,15 +18,19 @@ defmodule MimirWorkflows.Result do
   @doc """
   Folds `"usage"` maps across a `MimirWorkflows.Runner.run/2` results map.
   """
-  @spec usage(%{term() => map()}) :: %{String.t() => non_neg_integer()}
+  @spec usage(%{term() => term()}) :: %{String.t() => non_neg_integer()}
   def usage(results) do
     zero = Map.new(@usage_keys, &{&1, 0})
 
     results
     |> Map.values()
-    |> Enum.reduce(zero, fn result, acc ->
-      usage = Map.get(result, "usage", %{})
-      Map.new(acc, fn {key, total} -> {key, total + Map.get(usage, key, 0)} end)
+    |> Enum.reduce(zero, fn
+      %{} = result, acc ->
+        usage = Map.get(result, "usage", %{})
+        Map.new(acc, fn {key, total} -> {key, total + Map.get(usage, key, 0)} end)
+
+      _not_a_map, acc ->
+        acc
     end)
   end
 end
