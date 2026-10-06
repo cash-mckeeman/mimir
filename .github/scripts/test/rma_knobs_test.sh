@@ -10,4 +10,5 @@ knob() { # desc, want-substring, VAR=value...
 }
 knob "publishing refuses MIMIR_WITHOUT_RMA"   "MIMIR_PUBLISH cannot be combined" MIMIR_PUBLISH=1 MIMIR_WITHOUT_RMA=1
 knob "publishing refuses MIMIR_RMA_PIN"       "MIMIR_PUBLISH cannot be combined" MIMIR_PUBLISH=1 MIMIR_RMA_PIN=0.10.0
+knob "a pre-release pin is outside the range" 'MIMIR_RMA_PIN "0.11.0-rc.1" is outside' MIMIR_RMA_PIN=0.11.0-rc.1
 exit $fail
