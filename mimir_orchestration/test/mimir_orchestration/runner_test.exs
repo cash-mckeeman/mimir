@@ -158,6 +158,20 @@ defmodule MimirOrchestration.RunnerTest do
     assert req.path == ["workflow:wf-t", "workflow_step:b"]
   end
 
+  test "a step with several dependencies sends its first as parent_step_id" do
+    run_fun = fn _t, i, _o -> {:ok, i} end
+
+    steps = [
+      %{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []},
+      %{id: "b", target: :t, input: 2, descriptor: %{}, depends_on: []},
+      %{id: "c", target: :t, input: 3, descriptor: %{}, depends_on: ["b", "a"]}
+    ]
+
+    assert {:ok, _} = Runner.run(steps, run_opts(run_fun: run_fun))
+    assert_receive {:router_request, "c", req}
+    assert req.parent_step_id == "b"
+  end
+
   test "a descriptor's own correlation names do not reach the router beside the runner's" do
     run_fun = fn _t, i, _o -> {:ok, i} end
 
