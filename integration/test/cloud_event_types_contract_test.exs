@@ -34,8 +34,10 @@ defmodule Integration.CloudEventTypesContractTest do
             workflow: [:step_start, :step_stop, :step_exception]
           ],
           type <- types do
+        {:ok, event} = apply(Event, domain, [type, [seq: 1, ts: 0]])
+
         {:ok, envelope} =
-          CloudEvent.from_event(%Event{domain: domain, type: type, seq: 1, ts: 0},
+          CloudEvent.from_event(event,
             id: "ev-#{domain}-#{type}",
             source: @source,
             time: @time
