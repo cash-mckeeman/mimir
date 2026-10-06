@@ -28,14 +28,21 @@ defmodule MimirOrchestration.DepDirectionTest do
   end
 
   test "runtime adapter references are confined to their integration files" do
+    files = Path.wildcard("lib/**/*.ex")
+    assert files != [], "the lib/**/*.ex glob matched no files: wrong working directory?"
+
+    for {_re, home} <- @confined do
+      assert home in files, "#{home} is not among the #{length(files)} scanned files"
+    end
+
     offenders =
       for {re, home} <- @confined,
-          path <- Path.wildcard("lib/**/*.ex"),
+          path <- files,
           path != home,
           Regex.match?(re, File.read!(path)),
           do: {path, Regex.source(re)}
 
-    assert offenders == []
+    assert offenders == [], "found in #{length(files)} scanned files"
   end
 
   test "lib/ names no durable engine, host application or gateway" do
