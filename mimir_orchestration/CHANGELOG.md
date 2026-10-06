@@ -18,7 +18,9 @@ First public release.
   `{:error, {:step_failed, step_id, {:bad_return, term}}}`.
 - `MimirOrchestration.RouterClient` is removed: `:router` takes a `Mimir.RouterClient` implementation, which
   returns `Mimir.RouteResponse`.
-- The route request is flat: descriptor fields at the top level, as `Mimir.RouterClient` documents.
+- The route request is flat: descriptor fields at the top level, as `Mimir.RouterClient` documents. A
+  descriptor's own `workflow_id`, `step_id`, `parent_step_id`, `fanout_hint` or `path` is dropped, so the
+  runner's values are the only ones sent.
 - A router response that is not a `Mimir.RouteResponse` fails the step with
   `{:routing_failed, {:invalid_route_response, response}}`, and a placement without a grant with
   `{:routing_failed, :no_grant}`. The raw-decision path, and the placement `base_url` it passed into the model map,
