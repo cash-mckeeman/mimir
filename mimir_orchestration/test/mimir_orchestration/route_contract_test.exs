@@ -15,10 +15,23 @@ defmodule MimirOrchestration.RouteContractTest do
       {:ok, descriptor} = Mimir.Descriptor.parse(request)
       send(Keyword.fetch!(opts, :owner), {:parsed, descriptor, request})
 
-      entry = %Mimir.Catalog.Entry{
-        id: "local-a",
-        model: "ollama:model-a",
-        model_spec: "ollama:model-a",
+      # Faster than the tools entry, so only the capability requirement picks the
+      # other one.
+      plain = %Mimir.Catalog.Entry{
+        id: "local-plain",
+        model: "ollama:model-plain",
+        model_spec: "ollama:model-plain",
+        lane: "ollama",
+        runtime: :local,
+        capabilities: [],
+        p50_latency_ms: 100,
+        priority: 100
+      }
+
+      tools = %Mimir.Catalog.Entry{
+        id: "local-tools",
+        model: "ollama:model-tools",
+        model_spec: "ollama:model-tools",
         lane: "ollama",
         runtime: :local,
         capabilities: [:tools],
@@ -28,13 +41,16 @@ defmodule MimirOrchestration.RouteContractTest do
 
       snapshot =
         Mimir.Snapshot.assemble(
-          pricing: %{"ollama:model-a" => %{input: 0, output: 0}},
+          pricing: %{
+            "ollama:model-plain" => %{input: 0, output: 0},
+            "ollama:model-tools" => %{input: 0, output: 0}
+          },
           health: %{},
           parent_remaining: :unlimited
         )
 
       {:decision, %Mimir.Oracle.Decision{entry: chosen}} =
-        Mimir.Oracle.decide(descriptor, [entry], %Mimir.Oracle.Policy{}, snapshot)
+        Mimir.Oracle.decide(descriptor, [plain, tools], %Mimir.Oracle.Policy{}, snapshot)
 
       Mimir.RouteResponse.new(%{
         "verdict" => "placement",
@@ -84,7 +100,14 @@ defmodule MimirOrchestration.RouteContractTest do
                workflow_id: "wf-c"
              )
 
-    assert_received {:parsed, %Mimir.Descriptor{task_class: "extract"}, request}
+    assert_received {:parsed, descriptor, request}
+
+    assert descriptor == %Mimir.Descriptor{
+             task_class: "extract",
+             capabilities: [:tools],
+             budget_ceiling_microdollars: 50_000,
+             latency_tolerance_ms: 30_000
+           }
 
     assert %{
              workflow_id: "wf-c",
@@ -94,7 +117,7 @@ defmodule MimirOrchestration.RouteContractTest do
            } = request
 
     assert_received {:dispatched, opts}
-    assert opts[:model] == %{"key" => "vk-contract", "model" => "ollama:model-a"}
+    assert opts[:model] == %{"key" => "vk-contract", "model" => "ollama:model-tools"}
     assert is_function(opts[:turn_guard], 1)
     assert opts[:metadata][:decision_id] == "rd_contract"
   end
