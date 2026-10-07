@@ -18,8 +18,8 @@ defmodule MimirOrchestration.Executor do
   `execute/1` is synchronous: it returns `t:MimirOrchestration.Runner.result/0`
   once the run has finished. On success that is
   `{:ok, %{results: results, workflow_id: workflow_id}}`, where `results` maps each
-  step id to the `value` of its `{:ok, value}`. Otherwise it is the first failure,
-  in the shapes callers of `Runner.run/2` match on:
+  step id to the `value` of its `{:ok, value}`. Otherwise it is the first failure
+  the executor saw, in the shapes callers of `Runner.run/2` match on:
 
     * `{:error, {:step_failed, step_id, reason}}` when `run_step/4` returns
       `{:error, reason}`;
