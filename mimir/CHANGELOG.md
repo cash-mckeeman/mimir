@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Tool results get their own event. `Mimir.Ingest` classifies a frame carrying a
+binary `"tool_use_id"` as a new `llm` event, `:tool_result`, before it looks
+for a named tool call. The event's `tool` holds the `tool_use_id` as `id` and
+the frame's `"name"` as `name`, or `nil` when the frame has none; the
+provider's payload stays in `raw`. Before, a named tool-result frame became a
+second `:tool_call`, and an unnamed one was dropped as unrecognized.
+`Mimir.Event`'s `tool.name` type admits `nil`. `Mimir.Event.from_wire/1` in an
+earlier release returns
+`{:error, {:bad_event, {:bad_type, :llm, "tool_result"}}}` for the new type.
+
 Dependency-direction tests guard the declared dependency sets and module references in `lib/`.
 
 `Mimir.Event.OTel`'s documentation reflects the current GenAI conventions; output is unchanged.
