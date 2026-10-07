@@ -12,6 +12,9 @@ second `:tool_call`, and an unnamed one was dropped as unrecognized.
 earlier release returns
 `{:error, {:bad_event, {:bad_type, :llm, "tool_result"}}}` for the new type.
 
+mimir is now published from the `mimir/` directory of a repository shared with `mimir_workflows` and
+`mimir_orchestration`; minor releases are shared across the three.
+
 Dependency-direction tests guard the declared dependency sets and module references in `lib/`.
 
 `Mimir.Event.OTel`'s documentation reflects the current GenAI conventions; output is unchanged.
