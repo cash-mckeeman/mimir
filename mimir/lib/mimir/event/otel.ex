@@ -44,7 +44,7 @@ defmodule Mimir.Event.OTel do
   Every agent event renders `gen_ai.operation.name` as `invoke_agent`, and
   `session_id`, when set, as `gen_ai.conversation.id`. `:session_open` and
   `:session_reattach` both invoke an agent that exists or is brokered for the
-  session; `create_agent` describes creating an agent in a remote agent
+  session; `create_agent` describes agent creation, usually in a remote agent
   service, which neither event records.
 
   `:turn_start`, `:turn_end`, `:terminal` and `:error` are moments within one
