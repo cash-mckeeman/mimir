@@ -27,16 +27,16 @@ defmodule Mimir.Event.OTel do
 
   ## `llm`
 
-  `:usage`, `:tool_call` and `:reasoning` render exactly what the retired
-  `Mimir.TurnEvents.GenAI` builders produced: `gen_ai.usage.input_tokens` and
-  `gen_ai.usage.output_tokens`; `gen_ai.tool.name` and `gen_ai.tool.call.id`,
-  with the call-id key present even when the id is `nil`; and a bare
-  `milestone` key, with no `gen_ai.` prefix, defaulting to `""`.
+  `:usage` with a `usage` map, `:tool_call` with a `tool` map, and `:reasoning`
+  render exactly what the retired `Mimir.TurnEvents.GenAI` builders produced:
+  `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; `gen_ai.tool.name`
+  and `gen_ai.tool.call.id`, with the call-id key present even when the id is
+  `nil`; and a bare `milestone` key, with no `gen_ai.` prefix, defaulting to `""`.
   `test/support/fixtures/gen_ai_compat/` holds those shapes as captured from
   the old builders.
 
-  Any other `llm` event, `:tool_result` included, exports `raw` with its keys
-  stringified.
+  Every other `llm` event, `:tool_result` included and `:usage` or `:tool_call`
+  without its map, exports `raw` with its keys stringified.
 
   ## `agent`
 
