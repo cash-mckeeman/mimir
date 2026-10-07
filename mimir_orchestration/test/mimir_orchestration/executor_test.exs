@@ -30,13 +30,13 @@ defmodule MimirOrchestration.ExecutorTest do
         "verdict" => "placement",
         "placement" => %{"model" => opts[:model]},
         "grant" => %{"key" => "k-" <> req.step_id},
-        "decision_id" => "d-" <> req.step_id
+        "decision_id" => "d-#{req.step_id}-#{req.fanout_hint}"
       })
     end
   end
 
   # Reports what routing gave the step: the granted model and key, the decision
-  # id, and the turn guard's verdict on a fresh turn.
+  # id (which carries the fan-out hint), and the turn guard's verdict on a fresh turn.
   defmodule RoutedRunner do
     @behaviour MimirOrchestration.AgentRunner
     @impl true
@@ -148,10 +148,11 @@ defmodule MimirOrchestration.ExecutorTest do
       )
     end
 
-    assert {:ok, %{results: %{"a" => "hi", "b" => "hi", "c" => c}}} =
+    assert {:ok, %{results: %{"a" => "hi", "b" => "hi", "c" => c, "d" => d}}} =
              in_memory = run.(MimirOrchestration.Executor.InMemory)
 
-    assert c.text == "fleet-rt k-c d-c cont hi"
+    assert c.text == "fleet-rt k-c d-c-2 cont hi"
+    assert d.text == "fleet-rt k-d d-d-2 cont hi"
 
     assert run.(MimirOrchestration.Test.SequentialExecutor) == in_memory
   end
@@ -178,6 +179,14 @@ defmodule MimirOrchestration.ExecutorTest do
         },
         %{
           "id" => "c",
+          "kind" => "agent",
+          "agent" => "routed",
+          "input" => "{{b}}",
+          "depends_on" => ["b"],
+          "descriptor" => %{"task_class" => "analysis", "budget_ceiling_microdollars" => 1}
+        },
+        %{
+          "id" => "d",
           "kind" => "agent",
           "agent" => "routed",
           "input" => "{{b}}",
