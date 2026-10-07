@@ -2,7 +2,7 @@ defmodule MimirOrchestration.MixProject do
   use Mix.Project
 
   @app :mimir_orchestration
-  @version "0.7.0-dev"
+  @version "0.7.0"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
   # req_managed_agents is optional, with a tested range. The ceiling moves only after

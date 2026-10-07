@@ -2,7 +2,7 @@ defmodule MimirAnalytics.MixProject do
   use Mix.Project
 
   @app :mimir_analytics
-  @version "0.7.0-dev"
+  @version "0.7.0"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do
