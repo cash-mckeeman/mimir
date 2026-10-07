@@ -8,7 +8,7 @@ defmodule Mimir.Event.OTel do
 
   ## Conventions
 
-  Attribute names follow the OpenTelemetry GenAI semantic conventions as read at
+  The `gen_ai.*` attribute names follow the OpenTelemetry GenAI semantic conventions as read at
   [`open-telemetry/semantic-conventions-genai@4f85037`](https://github.com/open-telemetry/semantic-conventions-genai/tree/4f85037ef86e92c510d2ef881a58f1076f6fc0e4):
   `docs/gen-ai/gen-ai-agent-spans.md`, and the `gen_ai.operation.name`
   registry in `model/gen-ai/registry.yaml`. The conventions have Development
