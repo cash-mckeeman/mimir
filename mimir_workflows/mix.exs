@@ -2,7 +2,7 @@ defmodule MimirWorkflows.MixProject do
   use Mix.Project
 
   @app :mimir_workflows
-  @version "0.7.0-dev"
+  @version "0.7.0"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do

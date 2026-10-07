@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-10-07)
 
 Tool results get their own event. `Mimir.Ingest` classifies a frame carrying a
 binary `"tool_use_id"` as a new `llm` event, `:tool_result`, before it looks

@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-10-07)
+
+First release on Hex.
 
 Dependency-direction tests guard the declared dependency sets and module references in `lib/`.
-
-First public release.
 
 ### Added
 
