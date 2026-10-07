@@ -1,74 +1,71 @@
 defmodule Mimir.Event.OTel do
   @moduledoc """
-  Canonical export-edge rendering for `Mimir.Event` — one mapper, one private
-  renderer per domain, no per-consumer drift (spec §3.3: "`gen_ai` is a wire
-  format at the export edge, not a domain model").
+  Renders a `Mimir.Event` as OpenTelemetry attributes. This is the one place
+  Mimir's events meet the OpenTelemetry GenAI vocabulary.
 
   `render/1` returns `%{type: String.t(), attributes: %{optional(String.t()) =>
-  term()}}`. `type` is the domain string (`"llm"`, `"agent"`, `"workflow"`);
-  `attributes` is the OTel-attribute-shaped map for that event.
+  term()}}`. `type` is the domain string (`"llm"`, `"agent"` or `"workflow"`).
 
-  ## `llm` domain — byte-compatible with the retired `Mimir.TurnEvents.GenAI`
+  ## Conventions
 
-  The `llm` mapper reproduces today's exported attribute names exactly for the
-  three shapes the old `Mimir.TurnEvents.GenAI` helpers built:
-  `gen_ai.usage.input_tokens`/`gen_ai.usage.output_tokens`,
-  `gen_ai.tool.name`/`gen_ai.tool.call.id` (including the case where the tool
-  id is `nil` — the call-id key is still present with a `nil` value, matching
-  `GenAI.tool_use/1`'s behavior verbatim), and the bare `"milestone"` reasoning
-  marker (note: no `gen_ai.` prefix on `milestone` historically — preserved as
-  documented, not "fixed"). Proof lives in
-  `test/support/fixtures/gen_ai_compat/*.json`, captured from the *live*
-  `Mimir.TurnEvents.GenAI` helpers before this module existed (see the fixture
-  freeze commit and `test/mimir/event/otel_test.exs`, which assert
-  `render/1`'s output byte-equal against those frozen fixtures.
+  The `gen_ai.*` attribute names follow the OpenTelemetry GenAI semantic conventions as read at
+  [`open-telemetry/semantic-conventions-genai@4f85037`](https://github.com/open-telemetry/semantic-conventions-genai/tree/4f85037ef86e92c510d2ef881a58f1076f6fc0e4):
+  `docs/gen-ai/gen-ai-agent-spans.md`, and the `gen_ai.operation.name`
+  registry in `model/gen-ai/registry.yaml`. The conventions have Development
+  status. At that commit, `gen_ai.operation.name` takes eighteen values, grouped
+  here for reading:
 
-  `request_start`, `request_stop`, `tool_result`, `turn_complete` and
-  `exception` export `raw` with stringified keys. Tool results retain their
-  provider payload instead of the call's `gen_ai.tool.*` attribute shape.
+    * inference: `chat`, `generate_content`, `text_completion`, `embeddings`,
+      `retrieval`, `fetch_response`
+    * agents: `create_agent`, `invoke_agent`, `plan`, `execute_tool`
+    * workflows: `invoke_workflow`, with the workflow named by
+      `gen_ai.workflow.name`
+    * memory: `search_memory`, `create_memory`, `update_memory`,
+      `upsert_memory`, `delete_memory`, `create_memory_store`,
+      `delete_memory_store`
 
-  ## `agent` domain — OTel GenAI *agent* conventions
+  `render/1` itself sets only `invoke_agent`.
 
-  `gen_ai.operation.name` is `"invoke_agent"` for every agent event — verified
-  against the OpenTelemetry Semantic Conventions for Generative AI Agents
-  (`gen-ai-agent-spans`, semconv-genai ~v1.40/1.41, still `Development` status
-  as of 2026-07: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/).
-  The registry defines two agent operation names, `create_agent` and
-  `invoke_agent`; Mimir's session lifecycle (`:session_open`/
-  `:session_reattach`) is semantically an invocation of an existing or
-  freshly-brokered agent in both cases, not the OTel `create_agent` sense
-  (typically remote agent-service *creation*, e.g. an Assistants-API
-  `POST /assistants`), so both map to `invoke_agent`.
+  ## `llm`
 
-  `session_id`, when present, renders as `gen_ai.conversation.id` — the
-  semconv-registered attribute for correlating a stream of events into one
-  conversation/session (open-telemetry/semantic-conventions-genai#51).
+  `:usage` with a `usage` map, `:tool_call` with a `tool` map, and `:reasoning`
+  render exactly what the retired `Mimir.TurnEvents.GenAI` builders produced:
+  `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; `gen_ai.tool.name`
+  and `gen_ai.tool.call.id`, with the call-id key present even when the id is
+  `nil`; and a bare `milestone` key, with no `gen_ai.` prefix, defaulting to `""`.
+  `test/support/fixtures/gen_ai_compat/` holds those shapes as captured from
+  the old builders.
 
-  `:turn_start`/`:turn_end`/`:terminal`/`:error` have no OTel operation name of
-  their own (they're sub-moments within one `invoke_agent`), so the mapper
-  adds a `mimir.agent.event` sub-type attribute carrying the Mimir type
-  string, keeping that distinction legible at the export edge.
-  `:session_open`/`:session_reattach` do not get this extra attribute — the
-  operation name plus the correlation id already identify the invocation.
+  Every other `llm` event, `:tool_result` included and `:usage` or `:tool_call`
+  without its map, exports `raw` with its keys stringified.
 
-  ## `workflow` domain — plain `mimir.workflow.*`, no GenAI pretense
+  ## `agent`
 
-  Workflow spans do not participate in the GenAI vocabulary at all: `render/1`
-  never emits a `gen_ai.*` key for a `:workflow` event. Attributes are
-  `mimir.workflow.id`, `mimir.workflow.step_id` (both omitted when `nil`, same
-  idiom as `Event.to_wire/1`'s `put_present`), and `mimir.workflow.event`
-  (the Mimir type string, always present).
+  Every agent event renders `gen_ai.operation.name` as `invoke_agent`, and
+  `session_id`, when set, as `gen_ai.conversation.id`. `:session_open` and
+  `:session_reattach` both invoke an agent that exists or is brokered for the
+  session; `create_agent` describes agent creation, usually in a remote agent
+  service, which neither event records.
 
-  ## `path` — `mimir.path`, every domain
+  `:turn_start`, `:turn_end`, `:terminal` and `:error` are moments within one
+  invocation and have no operation name of their own. They add
+  `mimir.agent.event`, holding the event type.
 
-  When `event.path != []`, `render/1` adds a `"mimir.path"` attribute — the
-  frames joined with `/` (e.g.
-  `"workflow:wf_123/workflow_step:step_5/agent:sess_9"`) — on top of
-  whichever domain-specific attributes above. This is purely
-  additive: an event with no `path` (the default, and every event recorded
-  before this field existed) renders identically to before this field was
-  added, which is what keeps the frozen `gen_ai.*` byte-compat goldens
-  passing unchanged.
+  ## `workflow`
+
+  Workflow events render `mimir.workflow.event` (the event type) and, when set,
+  `mimir.workflow.id` and `mimir.workflow.step_id`. They carry no `gen_ai.*`
+  attribute. That is a choice, not a gap in the conventions, which define
+  `invoke_workflow` and `gen_ai.workflow.name`: workflow events stay on
+  `mimir.workflow.*` until an ingest consumes them, so that the emitter changes
+  alongside a consumer it can be tested against.
+
+  ## `mimir.path`
+
+  An event with a non-empty `path` adds `mimir.path` to any domain's
+  attributes: its frames joined with `/`, for example
+  `"workflow:wf_123/workflow_step:step_5/agent:sess_9"`. An event with an empty
+  `path` renders without it.
   """
 
   alias Mimir.Event

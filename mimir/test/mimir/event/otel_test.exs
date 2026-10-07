@@ -53,6 +53,11 @@ defmodule Mimir.Event.OTelTest do
       assert OTel.render(ev).attributes == %{"gen_ai.request.model" => "gpt-4o"}
     end
 
+    test "usage without a usage map falls back to a stringified raw" do
+      {:ok, ev} = Event.llm(:usage, seq: 0, ts: 0, raw: %{k: 1})
+      assert OTel.render(ev).attributes == %{"k" => 1}
+    end
+
     test "render/1 type field is the domain string" do
       {:ok, ev} = Event.llm(:usage, seq: 0, ts: 0, usage: %{input_tokens: 1, output_tokens: 1})
       assert OTel.render(ev).type == "llm"
