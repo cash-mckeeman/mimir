@@ -53,8 +53,10 @@ path dependency; no earlier version is on Hex.
 - `Runner.run/2` refuses a run whose steps or options (every option it reads but `:executor`) carry a function, pid, reference or port,
   at any depth, with `{:error, {:not_serialisable, path, kind}}`, and runs no step.
 - Tool callables, `Policy.allowed_tools` values and `LlmStep`'s `:chat` (was `:chat_fun`) are MFAs,
-  `{module, function, extra_args}`. A tool is invoked as `apply(m, f, [input | extra_args])`; a `fun/1` or
-  `{module, function}` callable returns `{:error, {:not_a_callable, callable}}`. The chat MFA receives
+  `{module, function, extra_args}`. A tool is invoked as `apply(m, f, [input | extra_args])`. A
+  `{module, function}` callable fails the step with `{:not_a_callable, callable}`; a `fun/1` anywhere in the steps is
+  refused before any step runs with `{:error, {:not_serialisable, path, :function}}` (a direct
+  `Steps.ToolStep.run/3` call returns `{:error, {:not_a_callable, fun}}`). The chat MFA receives
   `%{model: model, prompt: prompt}` as its first argument, where `:chat_fun` received model, prompt and options as
   three arguments.
 - An llm step with no `:chat` and no `req_llm` fails with
