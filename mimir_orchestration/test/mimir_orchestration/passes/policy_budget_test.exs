@@ -5,7 +5,7 @@ defmodule MimirOrchestration.PassesPolicyBudgetTest do
   defp policy do
     %Policy{
       agent_registry: %{"data_analyst" => {:rma, "data_analyst"}},
-      allowed_tools: %{"emit" => &Function.identity/1},
+      allowed_tools: %{"emit" => {Function, :identity, []}},
       budget_ceiling_microdollars: 1_000_000
     }
   end

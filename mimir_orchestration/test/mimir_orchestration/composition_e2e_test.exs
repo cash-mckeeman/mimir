@@ -1,6 +1,7 @@
 defmodule MimirOrchestration.CompositionE2ETest do
   use ExUnit.Case, async: true
   alias MimirOrchestration.{Compiler, Eval, Exec, NodeResult, Policy}
+  alias MimirOrchestration.Test.Registered
 
   defmodule Router do
     @behaviour Mimir.RouterClient
@@ -55,6 +56,9 @@ defmodule MimirOrchestration.CompositionE2ETest do
     ]
   }
 
+  def title(%{prompt: p}), do: {:ok, "TITLE(#{String.slice(p, 0, 6)})"}
+  def live_title(%{prompt: _}), do: {:ok, "live-title"}
+
   defp policy do
     %Policy{
       agent_registry: %{"a" => {:rma, "a"}, "b" => {:rma, "b"}},
@@ -64,16 +68,14 @@ defmodule MimirOrchestration.CompositionE2ETest do
 
   test "three-node composition: dataflow + one workflow_id across the tree" do
     {:ok, compiled} = Compiler.compile(@spec_map, policy())
-    owner = self()
-    chat_fun = fn _model, prompt, _ -> {:ok, "TITLE(#{String.slice(prompt, 0, 6)})"} end
 
     assert {:ok, %{results: results, workflow_id: "wf-e2e"}} =
              Exec.run(compiled, %{"q" => "kpis?"},
                router: {Router, []},
                workflow_id: "wf-e2e",
                agent_runner: StubRunner,
-               agent_runner_opts: [owner: owner],
-               llm_opts: [chat_fun: chat_fun]
+               agent_runner_opts: [owner: Registered.self_name()],
+               llm_opts: [chat: {__MODULE__, :title, []}]
              )
 
     assert results["analyze"].text == "out-a"
@@ -147,8 +149,8 @@ defmodule MimirOrchestration.CompositionE2ETest do
       Exec.run(compiled, %{"q" => "live kpis?"},
         router: {LiveRouter, [url: url]},
         agent_runner: MimirOrchestration.CompositionE2ETest.StubRunner,
-        agent_runner_opts: [owner: self()],
-        llm_opts: [chat_fun: fn _m, _p, _ -> {:ok, "live-title"} end]
+        agent_runner_opts: [owner: Registered.self_name()],
+        llm_opts: [chat: {__MODULE__, :live_title, []}]
       )
 
     assert match?({:ok, _}, result) or

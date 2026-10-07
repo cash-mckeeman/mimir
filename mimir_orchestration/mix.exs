@@ -15,6 +15,7 @@ defmodule MimirOrchestration.MixProject do
       version: @version,
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       source_url: @source_url,
       description: "Routing and budget contracts for agent workflows",
@@ -31,34 +32,51 @@ defmodule MimirOrchestration.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
+    refuse_ci_knobs_when_publishing()
+
     [
       sibling(:mimir_workflows),
       sibling(:mimir),
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:jido, "~> 2.2", optional: true},
-      {:req_llm, "~> 1.10", optional: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
-    ] ++ rma_dep()
+    ] ++ req_llm_dep() ++ rma_dep()
+  end
+
+  # The CI-only knobs below change the dependency graph. Publishing refuses them, so
+  # a tarball never carries a CI-only requirement.
+  defp refuse_ci_knobs_when_publishing do
+    knobs =
+      Enum.filter(~w(MIMIR_WITHOUT_RMA MIMIR_RMA_PIN MIMIR_WITHOUT_REQ_LLM), &System.get_env/1)
+
+    if System.get_env("MIMIR_PUBLISH") in ["1", "floor"] and knobs != [] do
+      Mix.raise(
+        "MIMIR_PUBLISH cannot be combined with #{Enum.join(knobs, " or ")}: " <>
+          "they are CI-only and would change the published requirements"
+      )
+    end
+  end
+
+  # MIMIR_WITHOUT_REQ_LLM=1 removes req_llm from the dependency graph (CI's
+  # without-req_llm leg).
+  defp req_llm_dep do
+    if System.get_env("MIMIR_WITHOUT_REQ_LLM") == "1",
+      do: [],
+      else: [{:req_llm, "~> 1.10", optional: true}]
   end
 
   # MIMIR_WITHOUT_RMA=1 removes it from the dependency graph (CI's without-RMA leg);
   # MIMIR_RMA_PIN=<version> pins one release inside the range, "floor" the lowest one
   # (CI's range legs).
-  # Publishing refuses both, so a tarball never carries a CI-only requirement.
   defp rma_dep do
-    if System.get_env("MIMIR_PUBLISH") in ["1", "floor"] and
-         (System.get_env("MIMIR_WITHOUT_RMA") || System.get_env("MIMIR_RMA_PIN")) do
-      Mix.raise(
-        "MIMIR_PUBLISH cannot be combined with MIMIR_WITHOUT_RMA or MIMIR_RMA_PIN: " <>
-          "they are CI-only and would change the published requirements"
-      )
-    end
-
     cond do
       System.get_env("MIMIR_WITHOUT_RMA") == "1" ->
         []

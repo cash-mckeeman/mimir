@@ -8,7 +8,7 @@ defmodule MimirOrchestration.CompilerTest do
         "data_analyst" => {:rma, "spec-da"},
         "business_analyst" => {:rma, "spec-ba"}
       },
-      allowed_tools: %{"emit" => &Function.identity/1},
+      allowed_tools: %{"emit" => {Function, :identity, []}},
       budget_ceiling_microdollars: 1_000_000
     }
   end

@@ -6,9 +6,9 @@ defmodule MimirOrchestration.DepDirectionTest do
   use ExUnit.Case, async: true
 
   @runtime [:jason, :mimir, :mimir_workflows, :telemetry]
-  @optional if System.get_env("MIMIR_WITHOUT_RMA") == "1",
-              do: [:jido, :req_llm],
-              else: [:jido, :req_llm, :req_managed_agents]
+  @optional [:jido] ++
+              if(System.get_env("MIMIR_WITHOUT_REQ_LLM") == "1", do: [], else: [:req_llm]) ++
+              if(System.get_env("MIMIR_WITHOUT_RMA") == "1", do: [], else: [:req_managed_agents])
   @confined [
     {~r/\bReqManagedAgents\./, "lib/mimir_orchestration/agent_runner/rma.ex"},
     {~r/\bJido\./, "lib/mimir_orchestration/agent_tool.ex"},

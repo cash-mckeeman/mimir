@@ -6,6 +6,15 @@ Dependency-direction tests guard the declared dependency sets and module referen
 
 First public release.
 
+### Added
+
+- `MimirOrchestration.Executor`, the execution seam: `Runner.run/2` builds one plain-data
+  `MimirOrchestration.Executor.Payload` and hands it to the executor named by the new `:executor` option.
+  `MimirOrchestration.Executor.InMemory` is the default. Routing, the grant, the turn guard and the step span stay in
+  `Executor.run_step/4`, which every executor calls once per step.
+- `Runner.run/2` takes `:params`, which step inputs resolve against, and `:halt`.
+- `Exec.run/3` takes `:executor`.
+
 ### Changed
 
 - `Runner` runs its waves through `MimirWorkflows.Runner`. Results are the steps' values, no longer
@@ -28,3 +37,21 @@ First public release.
 - A routed step with no `:router` fails with `{:routing_failed, :no_router}` instead of crashing.
 - req_managed_agents is optional (`>= 0.10.0 and < 0.11.0`): without it, the default agent runner returns
   `{:error, {:missing_dependency, :req_managed_agents}}`.
+- `Runner.run/2`'s `:run_fun` closure is now `:run`, an MFA invoked as
+  `apply(m, f, [%MimirOrchestration.StepCall{} | extra_args])`. What the closure captured travels in `extra_args`.
+  A plain-data `:run` of another shape returns `{:error, {:not_a_callable, run}}`.
+- Step inputs that are templates are `%MimirOrchestration.StepInput{}` data, resolved at dispatch, instead of
+  closures.
+- `Runner.run/2` refuses a run whose steps or options (every option it reads but `:executor`) carry a function, pid, reference or port,
+  at any depth, with `{:error, {:not_serialisable, path, kind}}`, and runs no step.
+- Tool callables, `Policy.allowed_tools` values and `LlmStep`'s `:chat` (was `:chat_fun`) are MFAs,
+  `{module, function, extra_args}`. A tool is invoked as `apply(m, f, [input | extra_args])`; a `fun/1` or
+  `{module, function}` callable returns `{:error, {:not_a_callable, callable}}`. The chat MFA receives
+  `%{model: model, prompt: prompt}` as its first argument, where `:chat_fun` received model, prompt and options as
+  three arguments.
+- An llm step with no `:chat` and no `req_llm` fails with
+  `{:error, {:step_failed, step_id, {:missing_dependency, :req_llm}}}` instead of crashing with a `RuntimeError`;
+  `LlmStep.run/2` itself returns `{:error, {:missing_dependency, :req_llm}}`.
+- Through `Exec.run/3`, the agent runner options cross the executor seam: req_managed_agents' session `:handler`
+  must be a module, and `AgentRunner.RMA`'s `:provision_fun` and `:session_fun` closures are refused with
+  `{:error, {:not_serialisable, path, :function}}`. Direct calls to `AgentRunner.RMA.run/3` keep them.

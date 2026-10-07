@@ -5,7 +5,7 @@ defmodule MimirOrchestration.EvalTest do
   defp policy do
     %Policy{
       agent_registry: %{"a" => {:rma, "a"}},
-      allowed_tools: %{"t" => &Function.identity/1},
+      allowed_tools: %{"t" => {Function, :identity, []}},
       budget_ceiling_microdollars: 100
     }
   end

@@ -1,13 +1,41 @@
 defmodule MimirOrchestration.Runner do
   @moduledoc """
-  Runs lowered steps wave by wave through `MimirWorkflows.Runner`. Each routed step
-  gets a grant and a turn guard from the router; `route: false` steps skip routing.
-  When a step fails, the rest of its wave finishes, then the run stops.
+  Runs lowered steps through an executor (`MimirOrchestration.Executor`). Each
+  routed step gets a grant and a turn guard from the router; `route: false` steps
+  skip routing. With the default executor, when a step fails the rest of its wave
+  finishes, then the run stops.
 
-  Options: `:run_fun` (required), `:router` (`{module, opts}`, where `module`
-  implements `Mimir.RouterClient`), `:workflow_id`, `:max_concurrency` (default 4),
-  `:step_timeout` (default 120 000 ms; `:infinity` allowed). A step that outlives
-  `:step_timeout` returns `{:error, {:step_crashed, step_id, :timeout}}`.
+  Options:
+
+    * `:run` (required) — an MFA `{module, function, extra_args}`, invoked once per
+      step as `apply(module, function, [%MimirOrchestration.StepCall{} | extra_args])`.
+      It returns `{:ok, value}` or `{:error, reason}`; anything else fails the step
+      with `{:bad_return, other}`. A plain-data `:run` of another shape returns
+      `{:error, {:not_a_callable, run}}` and no step runs.
+    * `:router` — `{module, opts}`, where `module` implements `Mimir.RouterClient`.
+    * `:workflow_id` — default a random `"wf-…"`.
+    * `:params` — the run's params, which `%MimirOrchestration.StepInput{}` inputs
+      resolve against; default `%{}`.
+    * `:max_concurrency` — default 4.
+    * `:step_timeout` — default 120 000 ms; `:infinity` allowed. A step that outlives
+      it returns `{:error, {:step_crashed, step_id, :timeout}}`.
+    * `:halt` — `:after_phase` (default) or `:immediate`.
+    * `:executor` — a `MimirOrchestration.Executor`; default
+      `MimirOrchestration.Executor.InMemory`.
+
+  Steps and options are plain data: a function, pid, reference or port anywhere in
+  the steps or in any of the options above but `:executor` returns
+  `{:error, {:not_serialisable, path, kind}}` and no step runs (see
+  `MimirOrchestration.Executor.Payload`).
+
+  A missing `:run` raises `KeyError`, and an `:executor` without `execute/1` raises
+  `UndefinedFunctionError`. An executor's own raise propagates to the caller. The
+  default executor raises `ArgumentError` for a `:halt` other than `:after_phase`
+  or `:immediate`.
+
+  A step's `input` is plain data, passed to `:run` as it is, or a
+  `%MimirOrchestration.StepInput{}` resolved at dispatch against the step's
+  dependencies' results.
 
   The route request is flat: the step descriptor's fields at the top level, plus
   `:workflow_id`, `:step_id`, `:parent_step_id`, `:fanout_hint` and `:path`. A
@@ -21,11 +49,7 @@ defmodule MimirOrchestration.Runner do
   `{:ok, _}` or `{:error, _}` fails the step with `{:step_crashed, step_id, reason}`,
   not `{:routing_failed, _}`.
   """
-  alias MimirOrchestration.Runner.{Ctx, WorkflowStep}
-  alias MimirWorkflows.Dag
-
-  @default_max_concurrency 4
-  @default_step_timeout 120_000
+  alias MimirOrchestration.Executor.Payload
 
   @type step :: %{
           required(:id) => String.t(),
@@ -40,38 +64,7 @@ defmodule MimirOrchestration.Runner do
 
   @spec run([step()], keyword()) :: result()
   def run(steps, opts) do
-    ctx = %Ctx{
-      router: Keyword.get(opts, :router),
-      run_fun: Keyword.fetch!(opts, :run_fun),
-      workflow_id: Keyword.get_lazy(opts, :workflow_id, fn -> "wf-" <> random_id() end),
-      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
-      step_timeout: Keyword.get(opts, :step_timeout, @default_step_timeout)
-    }
-
-    with {:ok, waves} <- Dag.waves(Enum.map(steps, &%{id: &1.id, depends_on: &1.depends_on})) do
-      fanout = for wave <- waves, id <- wave, into: %{}, do: {id, length(wave)}
-
-      steps
-      |> Enum.map(
-        &%{
-          id: &1.id,
-          module: WorkflowStep,
-          depends_on: &1.depends_on,
-          params: %{step: &1, ctx: ctx, fanout: Map.fetch!(fanout, &1.id)}
-        }
-      )
-      |> MimirWorkflows.Runner.run(
-        max_concurrency: ctx.max_concurrency,
-        timeout: ctx.step_timeout,
-        halt: :after_phase,
-        telemetry_meta: %{workflow_id: ctx.workflow_id}
-      )
-      |> case do
-        {:ok, results} -> {:ok, %{results: results, workflow_id: ctx.workflow_id}}
-        {:error, _} = error -> error
-      end
-    end
+    executor = Keyword.get(opts, :executor, MimirOrchestration.Executor.InMemory)
+    with {:ok, payload} <- Payload.new(steps, opts), do: executor.execute(payload)
   end
-
-  defp random_id, do: Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 end

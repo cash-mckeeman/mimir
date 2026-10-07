@@ -6,7 +6,8 @@ defmodule MimirOrchestration.RouteContractTest do
   """
   use ExUnit.Case, async: true
 
-  alias MimirOrchestration.Runner
+  alias MimirOrchestration.{Runner, StepCall}
+  alias MimirOrchestration.Test.Registered
 
   defmodule WireRouter do
     @behaviour Mimir.RouterClient
@@ -69,14 +70,13 @@ defmodule MimirOrchestration.RouteContractTest do
     end
   end
 
-  test "request, response and dispatch agree" do
-    name = :"route_contract_#{System.unique_integer([:positive])}"
-    Process.register(self(), name)
+  def report(%StepCall{opts: opts}, to) do
+    send(to, {:dispatched, opts})
+    {:ok, :done}
+  end
 
-    run_fun = fn _target, _input, opts ->
-      send(name, {:dispatched, opts})
-      {:ok, :done}
-    end
+  test "request, response and dispatch agree" do
+    name = Registered.self_name()
 
     steps = [
       %{
@@ -100,7 +100,7 @@ defmodule MimirOrchestration.RouteContractTest do
     assert {:ok, _} =
              Runner.run(steps,
                router: {WireRouter, [owner: name]},
-               run_fun: run_fun,
+               run: {__MODULE__, :report, [name]},
                workflow_id: "wf-c"
              )
 

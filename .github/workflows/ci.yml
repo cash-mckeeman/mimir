@@ -255,6 +255,23 @@ jobs:
       - name: The absence test ran (mix test --only exits 1 when no test matches)
         run: mix test --only without_rma
 
+  orchestration-without-req-llm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.orchestration == 'true'
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: mimir_orchestration}}
+    env:
+      MIMIR_WITHOUT_REQ_LLM: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/beam
+        with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: without-req-llm}
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+      - name: The absence test ran (mix test --only exits 1 when no test matches)
+        run: mix test --only without_req_llm
+
   analytics-test:
     needs: detect-changes
     if: needs.detect-changes.outputs.analytics == 'true'
@@ -332,6 +349,7 @@ jobs:
       - orchestration-quality
       - orchestration-rma-range
       - orchestration-without-rma
+      - orchestration-without-req-llm
       - analytics-test
       - analytics-quality
       - integration-test
