@@ -33,8 +33,8 @@ path dependency; no earlier version is on Hex.
 - `Exec.run/3` forwards `:step_timeout`.
 - A step that returns anything other than `{:ok, _}` or `{:error, _}` fails with
   `{:error, {:step_failed, step_id, {:bad_return, term}}}`.
-- `MimirOrchestration.RouterClient` is removed: `:router` takes a `Mimir.RouterClient` implementation, which
-  returns `Mimir.RouteResponse`.
+- `MimirOrchestration.RouterClient` is removed. `:router` is `{module, opts}`, where `module` implements
+  `Mimir.RouterClient` and returns a `Mimir.RouteResponse`.
 - The route request is flat: descriptor fields at the top level, as `Mimir.RouterClient` documents. A
   descriptor's own `workflow_id`, `step_id`, `parent_step_id`, `fanout_hint` or `path` is dropped, so the
   runner's values are the only ones sent.
