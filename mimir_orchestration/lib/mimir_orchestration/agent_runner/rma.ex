@@ -1,11 +1,15 @@
 defmodule MimirOrchestration.AgentRunner.RMA do
   @moduledoc """
-  Default agent adapter backed by `req_managed_agents`.
+  Default agent adapter backed by `req_managed_agents`, an optional dependency.
+  It needs `{:req_managed_agents, ">= 0.10.0 and < 0.11.0"}` in your dependencies,
+  or pass another `MimirOrchestration.AgentRunner` as `:agent_runner`. Without it,
+  `run/3` returns `{:error, {:missing_dependency, :req_managed_agents}}`.
 
   References are `{provider, {:spec, spec}}` or `{provider, {:handle, handle}}`.
-  Specs are provisioned through `ReqManagedAgents.provision/3`; supplied handles
-  skip provisioning. The generic provisioning cache is sufficient for this
-  adapter's in-process reuse; hosts needing lifecycle management own that policy.
+  Specs are provisioned through `ReqManagedAgents.provision/2` with its default
+  options; supplied handles skip provisioning. The generic provisioning cache is
+  sufficient for this adapter's in-process reuse; hosts needing lifecycle
+  management own that policy.
 
   Model configuration, turn guard and correlation metadata pass to
   `ReqManagedAgents.Session.run/2`. Keyword-list and map handles are merged into
@@ -73,23 +77,30 @@ defmodule MimirOrchestration.AgentRunner.RMA do
 
   defp usage_map(_), do: %{}
 
-  defp default_provision(provider, {:spec, spec}) do
-    case ReqManagedAgents.provision(provider, spec) do
-      {:ok, handle} -> {:ok, {:handle, handle}}
-      other -> other
+  if Code.ensure_loaded?(ReqManagedAgents) do
+    defp default_provision(provider, {:spec, spec}) do
+      case ReqManagedAgents.provision(provider, spec) do
+        {:ok, handle} -> {:ok, {:handle, handle}}
+        other -> other
+      end
     end
+
+    defp default_session(provider, {:handle, handle}, opts),
+      do: ReqManagedAgents.Session.run(provider, splat_handle(handle, opts))
+
+    defp splat_handle(handle, opts) when is_list(handle) do
+      if Keyword.keyword?(handle), do: Keyword.merge(opts, handle), else: [handle: handle] ++ opts
+    end
+
+    defp splat_handle(handle, opts) when is_map(handle),
+      do: Keyword.merge(opts, Map.to_list(handle))
+
+    defp splat_handle(handle, opts), do: Keyword.put(opts, :handle, handle)
+  else
+    defp default_provision(_provider, _spec),
+      do: {:error, {:missing_dependency, :req_managed_agents}}
+
+    defp default_session(_provider, _handle, _opts),
+      do: {:error, {:missing_dependency, :req_managed_agents}}
   end
-
-  defp default_session(provider, {:handle, handle}, opts) do
-    ReqManagedAgents.Session.run(provider, splat_handle(handle, opts))
-  end
-
-  defp splat_handle(handle, opts) when is_list(handle) do
-    if Keyword.keyword?(handle), do: Keyword.merge(opts, handle), else: [handle: handle] ++ opts
-  end
-
-  defp splat_handle(handle, opts) when is_map(handle),
-    do: Keyword.merge(opts, Map.to_list(handle))
-
-  defp splat_handle(handle, opts), do: Keyword.put(opts, :handle, handle)
 end

@@ -83,5 +83,6 @@ unconsumed, nonterminal steps without executing the workflow.
 
 `mimir_workflows` supplies the workflow IR, compiler passes, graph operations and
 templates. `mimir` supplies the router behaviour, typed routing responses and grant guards.
-`req_managed_agents` supplies the default agent adapter. `jido` and `req_llm`
-are optional integrations; `jason` and `telemetry` support serialization and events.
+The optional `req_managed_agents` supplies the default agent adapter; without it,
+pass `:agent_runner`. `jido` and `req_llm` are optional integrations; `jason` and
+`telemetry` support serialization and events.

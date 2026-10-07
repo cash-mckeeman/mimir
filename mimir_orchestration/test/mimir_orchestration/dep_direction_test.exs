@@ -5,8 +5,10 @@ defmodule MimirOrchestration.DepDirectionTest do
   """
   use ExUnit.Case, async: true
 
-  @runtime [:jason, :mimir, :mimir_workflows, :req_managed_agents, :telemetry]
-  @optional [:jido, :req_llm]
+  @runtime [:jason, :mimir, :mimir_workflows, :telemetry]
+  @optional if System.get_env("MIMIR_WITHOUT_RMA") == "1",
+              do: [:jido, :req_llm],
+              else: [:jido, :req_llm, :req_managed_agents]
   @confined [
     {~r/\bReqManagedAgents\./, "lib/mimir_orchestration/agent_runner/rma.ex"},
     {~r/\bJido\./, "lib/mimir_orchestration/agent_tool.ex"},
@@ -26,14 +28,21 @@ defmodule MimirOrchestration.DepDirectionTest do
   end
 
   test "runtime adapter references are confined to their integration files" do
+    files = Path.wildcard("lib/**/*.ex")
+    assert files != [], "the lib/**/*.ex glob matched no files: wrong working directory?"
+
+    for {_re, home} <- @confined do
+      assert home in files, "#{home} is not among the #{length(files)} scanned files"
+    end
+
     offenders =
       for {re, home} <- @confined,
-          path <- Path.wildcard("lib/**/*.ex"),
+          path <- files,
           path != home,
           Regex.match?(re, File.read!(path)),
           do: {path, Regex.source(re)}
 
-    assert offenders == []
+    assert offenders == [], "found in #{length(files)} scanned files"
   end
 
   test "lib/ names no durable engine, host application or gateway" do

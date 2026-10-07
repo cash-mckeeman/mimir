@@ -1,5 +1,6 @@
 defmodule MimirOrchestration.AgentRunner.RMATest do
   use ExUnit.Case, async: true
+  @moduletag :rma
   alias MimirOrchestration.{AgentRunner, NodeResult}
 
   # The session seam is injectable so tests never touch RMA's real providers:
@@ -84,5 +85,49 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
 
     assert {:error, :kaput} =
              AgentRunner.RMA.run({:prov, {:handle, "h"}}, "q", session_fun: session_fun)
+  end
+
+  # No injected funs: the real provision/2 and Session.run/2 run the in-process Local
+  # provider, whose handle is the map of session options (splat_handle/2 merges it).
+  # The scripted chat_fun is the only stand-in, so no network is touched.
+  test "the default adapter drives ReqManagedAgents through the Local provider" do
+    provider = ReqManagedAgents.Providers.Local
+
+    owner = self()
+
+    chat_fun = fn %{messages: messages} ->
+      send(owner, {:chat, messages})
+
+      {:ok,
+       %{
+         "choices" => [
+           %{
+             "message" => %{"role" => "assistant", "content" => "pong"},
+             "finish_reason" => "stop"
+           }
+         ],
+         "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 1}
+       }}
+    end
+
+    handler = fn _id, _name, _input -> {:ok, "unused"} end
+    spec = %{spec: %{system_prompt: "be brief"}, chat_fun: chat_fun, max_turns: 2}
+
+    for ref <- [{:spec, spec}, {:handle, spec}] do
+      assert {:ok, %NodeResult{text: "pong", usage: usage, raw: raw}} =
+               AgentRunner.RMA.run({provider, ref}, "ping", handler: handler)
+
+      assert usage == %{"input_tokens" => 3, "output_tokens" => 1}
+      assert raw.text == "pong"
+
+      assert_receive {:chat, [%{"role" => "system", "content" => "be brief"} | rest]}
+      assert %{"role" => "user", "content" => "ping"} in rest
+    end
+
+    # Local's provision/2 is identity, so the run above cannot tell a real
+    # ReqManagedAgents.provision/2 call from a bypass. This reads RMA's default
+    # provision cache (a named public ETS table, an RMA internal) for the spec the
+    # {:spec, _} ref provisioned; if RMA renames that table, update it here.
+    assert [_ | _] = :ets.match_object(:req_managed_agents_provisions, {:_, spec})
   end
 end

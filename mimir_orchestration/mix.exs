@@ -5,6 +5,10 @@ defmodule MimirOrchestration.MixProject do
   @version "0.7.0-dev"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
+  # req_managed_agents is optional, with a tested range. The ceiling moves only after
+  # CI has run the suite against the new release, in a patch of this package alone.
+  @rma_range ">= 0.10.0 and < 0.11.0"
+
   def project do
     [
       app: @app,
@@ -32,7 +36,6 @@ defmodule MimirOrchestration.MixProject do
     [
       sibling(:mimir_workflows),
       sibling(:mimir),
-      {:req_managed_agents, "~> 0.10"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.0"},
       {:jido, "~> 2.2", optional: true},
@@ -40,7 +43,58 @@ defmodule MimirOrchestration.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
-    ]
+    ] ++ rma_dep()
+  end
+
+  # MIMIR_WITHOUT_RMA=1 removes it from the dependency graph (CI's without-RMA leg);
+  # MIMIR_RMA_PIN=<version> pins one release inside the range, "floor" the lowest one
+  # (CI's range legs).
+  # Publishing refuses both, so a tarball never carries a CI-only requirement.
+  defp rma_dep do
+    if System.get_env("MIMIR_PUBLISH") in ["1", "floor"] and
+         (System.get_env("MIMIR_WITHOUT_RMA") || System.get_env("MIMIR_RMA_PIN")) do
+      Mix.raise(
+        "MIMIR_PUBLISH cannot be combined with MIMIR_WITHOUT_RMA or MIMIR_RMA_PIN: " <>
+          "they are CI-only and would change the published requirements"
+      )
+    end
+
+    cond do
+      System.get_env("MIMIR_WITHOUT_RMA") == "1" ->
+        []
+
+      pin = System.get_env("MIMIR_RMA_PIN") ->
+        [{:req_managed_agents, "== " <> checked_pin(pin), optional: true}]
+
+      true ->
+        [{:req_managed_agents, @rma_range, optional: true}]
+    end
+  end
+
+  # A pin is an exact MAJOR.MINOR.PATCH inside the range, or "floor" for the range's
+  # lowest release. Empty counts as malformed, not unset, so a blank CI variable
+  # fails instead of running unpinned.
+  defp checked_pin("floor"), do: checked_pin(rma_floor())
+
+  defp checked_pin(pin) do
+    case Version.parse(pin) do
+      {:ok, _} ->
+        Version.match?(pin, @rma_range, allow_pre: false) ||
+          Mix.raise("MIMIR_RMA_PIN #{inspect(pin)} is outside #{@rma_range}")
+
+        pin
+
+      :error ->
+        Mix.raise("MIMIR_RMA_PIN #{inspect(pin)} is not a MAJOR.MINOR.PATCH version")
+    end
+  end
+
+  # ">= 0.10.0 and < 0.11.0" -> "0.10.0".
+  defp rma_floor do
+    ">= " <> rest = @rma_range
+    [version | _] = String.split(rest, " and ")
+    {:ok, _} = Version.parse(version)
+    version
   end
 
   # Path in development; from Hex when publishing. The requirement is the family
