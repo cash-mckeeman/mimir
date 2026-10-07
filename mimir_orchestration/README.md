@@ -78,8 +78,8 @@ unconsumed, nonterminal steps without executing the workflow.
   `Exec.run/3` take `executor: module`; the default,
   `MimirOrchestration.Executor.InMemory`, runs them in this node. What reaches an
   executor is plain data: a function, pid, reference or port in the steps or in
-  any option but `:executor` returns `{:error, {:not_serialisable, path, kind}}`
-  and no step runs.
+  any option `Runner.run/2` reads but `:executor` returns
+  `{:error, {:not_serialisable, path, kind}}` and no step runs.
   Callables are MFAs, `{module, function, extra_args}`. Plain data is not a
   credential policy: an executor that persists payloads must not store router
   credentials, such as a `Mimir.RouterClient.HTTP` bearer token, raw.

@@ -24,7 +24,7 @@ defmodule MimirOrchestration.Runner do
       `MimirOrchestration.Executor.InMemory`.
 
   Steps and options are plain data: a function, pid, reference or port anywhere in
-  the steps or in any option but `:executor` returns
+  the steps or in any of the options above but `:executor` returns
   `{:error, {:not_serialisable, path, kind}}` and no step runs (see
   `MimirOrchestration.Executor.Payload`).
 
