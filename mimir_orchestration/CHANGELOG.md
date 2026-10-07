@@ -49,8 +49,9 @@ First public release.
   `{module, function}` callable returns `{:error, {:not_a_callable, callable}}`. The chat MFA receives
   `%{model: model, prompt: prompt}` as its first argument, where `:chat_fun` received model, prompt and options as
   three arguments.
-- An llm step with no `:chat` and no `req_llm` returns `{:error, {:missing_dependency, :req_llm}}` instead of
-  raising.
+- An llm step with no `:chat` and no `req_llm` fails with
+  `{:error, {:step_failed, step_id, {:missing_dependency, :req_llm}}}` instead of crashing with a `RuntimeError`;
+  `LlmStep.run/2` itself returns `{:error, {:missing_dependency, :req_llm}}`.
 - Through `Exec.run/3`, the agent runner options cross the executor seam: req_managed_agents' session `:handler`
   must be a module, and `AgentRunner.RMA`'s `:provision_fun` and `:session_fun` closures are refused with
   `{:error, {:not_serialisable, path, :function}}`. Direct calls to `AgentRunner.RMA.run/3` keep them.
