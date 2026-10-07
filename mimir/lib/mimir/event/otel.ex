@@ -12,7 +12,8 @@ defmodule Mimir.Event.OTel do
   [`open-telemetry/semantic-conventions-genai@4f85037`](https://github.com/open-telemetry/semantic-conventions-genai/tree/4f85037ef86e92c510d2ef881a58f1076f6fc0e4):
   `docs/gen-ai/gen-ai-agent-spans.md`, and the `gen_ai.operation.name`
   registry in `model/gen-ai/registry.yaml`. The conventions have Development
-  status. At that commit, `gen_ai.operation.name` takes:
+  status. At that commit, `gen_ai.operation.name` takes eighteen values, grouped
+  here for reading:
 
     * inference: `chat`, `generate_content`, `text_completion`, `embeddings`,
       `retrieval`, `fetch_response`
