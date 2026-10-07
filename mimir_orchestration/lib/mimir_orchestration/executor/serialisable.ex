@@ -14,7 +14,9 @@ defmodule MimirOrchestration.Executor.Serialisable do
   and the list and tuple indexes from the payload root to the term, for example
   `[:run, :extra_args, 0, :owner]`. The `:run` MFA's arguments are under
   `[:run, :extra_args]` and the router's options under `[:router, :opts]`. A banned
-  map key is reported at the path of the map that holds it.
+  map key is reported at the path of the map that holds it. A keyword list is a list
+  of `{key, value}` tuples, so it is walked by index: a pid in
+  `router: {module, [owner: pid]}` is at `[:router, :opts, 0, 1]`.
   """
   @spec check(Payload.t()) :: :ok | {:error, {:not_serialisable, [term()], kind()}}
   def check(%Payload{run: run, router: router} = payload) do
