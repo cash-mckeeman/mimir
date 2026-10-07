@@ -8,14 +8,22 @@ First public release.
 
 ### Added
 
+- `Compiler`, `Policy` and `Compiled`: a string-keyed workflow of agent, tool and model steps, checked by
+  `MimirWorkflows`' built-in passes plus `Passes.Kind`, `Passes.Policy` and `Passes.Budget` against the host's
+  agent registry, tool allowlist and budget ceiling. `Eval.plan_score/2` reports diagnostics without running.
 - `MimirOrchestration.Executor`, the execution seam: `Runner.run/2` builds one plain-data
   `MimirOrchestration.Executor.Payload` and hands it to the executor named by the new `:executor` option.
   `MimirOrchestration.Executor.InMemory` is the default. Routing, the grant, the turn guard and the step span stay in
   `Executor.run_step/4`, which every executor calls once per step.
 - `Runner.run/2` takes `:params`, which step inputs resolve against, and `:halt`.
 - `Exec.run/3` takes `:executor`.
+- `AgentRunner` (default `AgentRunner.RMA` over the optional `req_managed_agents`), `Steps.ToolStep`,
+  `Steps.LlmStep` (over the optional `req_llm`), `NodeResult`, and `AgentTool` with the optional `jido`.
 
 ### Changed
+
+What differs from the source tree this package was built from before publishing, for hosts that used it as a
+path dependency; no earlier version is on Hex.
 
 - `Runner` runs its waves through `MimirWorkflows.Runner`. Results are the steps' values, no longer
   `{:ok, value}`.
