@@ -7,7 +7,7 @@ defmodule MimirOrchestration.ExecutorTest do
   """
   use ExUnit.Case, async: true
 
-  alias MimirOrchestration.{Compiler, Exec, NodeResult, Policy, Runner, StepCall}
+  alias MimirOrchestration.{Compiler, Exec, Executor, NodeResult, Policy, Runner, StepCall, Test}
 
   defmodule NeverExecutor do
     @behaviour MimirOrchestration.Executor
@@ -20,6 +20,7 @@ defmodule MimirOrchestration.ExecutorTest do
 
   defmodule Run do
     def ok(%StepCall{input: input}, _data), do: {:ok, input}
+    def boom(%StepCall{}, _data), do: raise("boom")
   end
 
   defmodule PlacementRouter do
@@ -155,6 +156,29 @@ defmodule MimirOrchestration.ExecutorTest do
     assert d.text == "fleet-rt k-d d-d-2 cont hi"
 
     assert run.(MimirOrchestration.Test.SequentialExecutor) == in_memory
+  end
+
+  test "both executors return the documented shapes for a raising step and a cyclic plan" do
+    step = fn id, deps ->
+      %{id: id, target: :t, input: 1, descriptor: %{}, depends_on: deps, route: false}
+    end
+
+    run = fn steps, fun, executor ->
+      Runner.run(steps, run: {Run, fun, [[]]}, executor: executor, workflow_id: "wf")
+    end
+
+    # Compare the exception's module: two raises never build equal structs.
+    crashed = fn
+      {:error, {:step_crashed, id, {kind, %module{}}}} -> {:step_crashed, id, kind, module}
+      other -> other
+    end
+
+    for executor <- [Executor.InMemory, Test.SequentialExecutor] do
+      assert crashed.(run.([step.("a", [])], :boom, executor)) ==
+               {:step_crashed, "a", :error, RuntimeError}
+
+      assert run.([step.("a", ["b"]), step.("b", ["a"])], :ok, executor) == {:error, :cyclic}
+    end
   end
 
   defp plan do

@@ -14,16 +14,16 @@ defmodule MimirOrchestration.Test.SequentialExecutor do
   end
 
   defp run(payload) do
-    {:ok, waves} =
-      MimirWorkflows.Dag.waves(Enum.map(payload.steps, &Map.take(&1, [:id, :depends_on])))
+    with {:ok, waves} <-
+           MimirWorkflows.Dag.waves(Enum.map(payload.steps, &Map.take(&1, [:id, :depends_on]))) do
+      index = Map.new(payload.steps, &{&1.id, &1})
 
-    index = Map.new(payload.steps, &{&1.id, &1})
-
-    waves
-    |> Enum.reduce_while({:ok, %{}}, &run_wave(payload, index, &1, &2))
-    |> case do
-      {:ok, results} -> {:ok, %{results: results, workflow_id: payload.workflow_id}}
-      error -> error
+      waves
+      |> Enum.reduce_while({:ok, %{}}, &run_wave(payload, index, &1, &2))
+      |> case do
+        {:ok, results} -> {:ok, %{results: results, workflow_id: payload.workflow_id}}
+        error -> error
+      end
     end
   end
 
@@ -31,12 +31,21 @@ defmodule MimirOrchestration.Test.SequentialExecutor do
     outcomes =
       for id <- wave do
         step = index[id]
-        {id, Executor.run_step(payload, step, Map.take(acc, step.depends_on), length(wave))}
+
+        outcome =
+          try do
+            Executor.run_step(payload, step, Map.take(acc, step.depends_on), length(wave))
+          catch
+            kind, reason -> {:crashed, {kind, reason}}
+          end
+
+        {id, outcome}
       end
 
-    case Enum.find(outcomes, &match?({_, {:error, _}}, &1)) do
+    case Enum.find(outcomes, &(not match?({_, {:ok, _}}, &1))) do
       nil -> {:cont, {:ok, Map.merge(acc, Map.new(outcomes, fn {id, {:ok, v}} -> {id, v} end))}}
       {id, {:error, reason}} -> {:halt, {:error, {:step_failed, id, reason}}}
+      {id, {:crashed, reason}} -> {:halt, {:error, {:step_crashed, id, reason}}}
     end
   end
 end
