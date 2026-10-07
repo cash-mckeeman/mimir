@@ -4,14 +4,30 @@ defmodule MimirOrchestration.Executor do
   `MimirOrchestration.Executor.Payload` and hands it to the executor named by its
   `:executor` option, `MimirOrchestration.Executor.InMemory` by default.
 
-  An executor runs the payload's steps in dependency order and calls `run_step/4`
-  once per step. Routing, the grant, the turn guard, the dispatch through the `:run`
-  MFA and the `[:mimir_orchestration, :step]` telemetry span all happen inside
-  `run_step/4`, so every executor gets them unchanged. The payload is plain data, so
-  an executor may persist it and run it in another process or node.
+  An executor owns scheduling. It runs the payload's steps wave by wave, as
+  `MimirWorkflows.Dag.waves/1` groups them, and calls `run_step/4` once per step
+  with the results of the step's dependencies as `upstream` and the size of its wave
+  as `fanout`. The payload's `max_concurrency`, `step_timeout` and `halt` are
+  settings for the executor to apply; `MimirOrchestration.Executor.InMemory`
+  applies them as `MimirOrchestration.Runner.run/2` documents. Routing, the grant,
+  the turn guard, the dispatch through the `:run` MFA and the
+  `[:mimir_orchestration, :step]` telemetry span all happen inside `run_step/4`, so
+  every executor gets them unchanged. The payload is plain data, so an executor may
+  persist it and run it in another process or node.
 
   `execute/1` is synchronous: it returns `t:MimirOrchestration.Runner.result/0`
-  once the run has finished.
+  once the run has finished. On success that is
+  `{:ok, %{results: results, workflow_id: workflow_id}}`, where `results` maps each
+  step id to the `value` of its `{:ok, value}`. Otherwise it is the first failure,
+  in the shapes callers of `Runner.run/2` match on:
+
+    * `{:error, {:step_failed, step_id, reason}}` when `run_step/4` returns
+      `{:error, reason}`;
+    * `{:error, {:step_crashed, step_id, reason}}` when a step raises, exits or
+      throws (`reason` is `{kind, reason}`) or outlives `step_timeout` (`reason` is
+      `:timeout`);
+    * `{:error, :cyclic}` or `{:error, {:unknown_dependency, step_id}}`, from
+      `MimirWorkflows.Dag.waves/1`, when the steps' dependencies are not a DAG.
   """
   alias MimirOrchestration.Executor.Payload
   alias MimirOrchestration.{Runner, StepCall, StepInput}
