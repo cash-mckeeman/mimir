@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+`Mimir.Binding` turns a route decision into execution inputs in one place.
+`new/2` builds it from a `%Mimir.RouteResponse{}` and refuses a decision it
+cannot execute. `bind/2` checks it against a `Mimir.Binding.Target`, the runtime
+label, configured model and capabilities a host states for its target, and
+refuses a target that would run another runtime or model, or would lose the data
+plane. `model_config/1`, `guard/2` and `correlation/1` give the session inputs.
+A host offers the gateway's URL per data-plane wire (`:chat_completions`,
+`:managed_agents_api`); `bind/2` picks the one for the target's wire, and the
+grant key travels only together with it.
+
 ## 0.7.0 (2026-10-07)
 
 Tool results get their own event. `Mimir.Ingest` classifies a frame carrying a
