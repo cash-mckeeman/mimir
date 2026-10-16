@@ -45,6 +45,8 @@ end
 | `Mimir.RouteResponse` | Parsed routing-call result; `new/1` is the single boundary from wire map to struct. |
 | `Mimir.Grant` | Minted routing grant: key, budget, expiry. |
 | `Mimir.Placement` | Flat chosen-model placement: lane, model, runtime. |
+| `Mimir.Binding` | A route decision prepared for execution: target compatibility, `model_config`, grant guard and correlation for a runtime adapter. |
+| `Mimir.Binding.Target` | A host's statement of its execution target: runtime label, configured model, per-run-model and data-plane support. |
 | `Mimir.Candidate` | One catalog entry's routing verdict: chosen, ranked, or excluded. |
 | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
 | `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
