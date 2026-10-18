@@ -51,7 +51,6 @@ end
 | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
 | `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
 | `Mimir.Ingest` | Decision-correlated ingestion of raw session events, promoted to `Mimir.Event` and appended to `Mimir.TurnEvents`. |
-| `Mimir.Sessions` | Canonical recipe: route response to session options (`model_config`, `turn_guard`, `telemetry_metadata`). |
 
 ## Design rules
 
@@ -88,7 +87,6 @@ All configuration lives under the `:mimir` application:
 | `:health_threshold` | `Mimir.Health` | Failure-streak count at which a lane is reported `:degraded`. Default `3`. |
 | `:completion_event` | `Mimir.Health` | Telemetry event `Health.attach/0` listens on. Default `[:mimir, :completion]`. |
 | `:turn_events_tables` | `Mimir.TurnEvents` | `{seq_table, buf_table}` ETS table names, for running more than one buffer instance. |
-| `:gateway_base_url` | `Mimir.Sessions` | Default `:base_url` for `opts/2`'s `model_config`, when not passed explicitly. |
 
 ## Examples
 
@@ -174,7 +172,7 @@ where a decoded wire response becomes mimir's struct vocabulary:
 - `Mimir.Candidate` — one catalog entry's verdict: `:chosen`, `:ranked`, or
   `{:excluded, reason}`.
 
-Everything downstream — `Mimir.Sessions.opts/2`, `Mimir.Guard.for_grant/3`,
+Everything downstream — `Mimir.Binding.new/2`, `Mimir.Guard.for_grant/3`,
 `Mimir.Ingest.from_route/2` — consumes these structs directly; none of them
 touch a raw route map.
 
@@ -192,20 +190,6 @@ planes:
   a session's accumulated usage after each turn and halts once a cap is hit.
   This is the soft half, for runtimes the gateway can't sit in front of, or
   as defense in depth alongside the data plane.
-
-`Mimir.Sessions.opts/2` is the canonical recipe that wires both planes from a
-single route response:
-
-```elixir
-{:ok, resp} = Mimir.RouterClient.route(descriptor, client_opts)
-# resp is a %Mimir.RouteResponse{} — see Routing vocabulary, above
-session_opts = Mimir.Sessions.opts(resp, base_url: gateway_url)
-Session.run(provider, session_opts ++ [handler: MyTools, prompt: prompt])
-```
-
-`opts/2` raises `ArgumentError` on a no-candidate or malformed route
-response — fail at composition time, not mid-session. `Mimir.Guard` handles
-the mid-run side and never raises.
 
 To correlate raw session events back to the routing decision for metering,
 call `Mimir.Ingest.handle_event/2` from your session handler's event hook;

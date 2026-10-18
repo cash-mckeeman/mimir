@@ -22,7 +22,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
   9. router client — placement round-trip and http_error mapping over a real Req request (skipped unless run under `MIX_ENV=test` — Plug is a test-only dependency; CI's test job runs it for real)
   10. redact — provider split, truncation, payload gating
   11. guard — grant guard halts at budget; caps guard halts at turns
-  12. sessions — route response assembled into session opts; ingest correlated by decision_id
+  12. binding — target compatibility, model configuration, guard and ingest correlation
 
   ## Usage
 
@@ -49,6 +49,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
   @plug_loaded? Mix.env() == :test
 
   alias Mimir.{
+    Binding,
     Catalog,
     DecisionRecord,
     Descriptor,
@@ -62,6 +63,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     TurnEvents
   }
 
+  alias Mimir.Binding.Target
   alias Mimir.Oracle.{Decision, Policy}
 
   @model "anthropic:claude-sonnet-4-6"
@@ -124,7 +126,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
       stage("router HTTP client round-trip", &router_client_stage/0),
       stage("redact helpers", &redact_stage/0),
       stage("guard budget + caps halts", &guard_stage/0),
-      stage("sessions opts + ingest correlation", &sessions_stage/0)
+      stage("binding + ingest correlation", &binding_stage/0)
     ]
 
     if Enum.any?(results, &match?({_, :fail, _}, &1)), do: {:error, results}, else: {:ok, results}
@@ -431,7 +433,7 @@ defmodule Mix.Tasks.Mimir.Smoke do
     end
   end
 
-  defp sessions_stage do
+  defp binding_stage do
     {:ok, resp} =
       Mimir.RouteResponse.new(%{
         verdict: "placement",
@@ -443,18 +445,35 @@ defmodule Mix.Tasks.Mimir.Smoke do
         snapshot_at: "2026-07-04T00:00:00Z"
       })
 
-    opts = Mimir.Sessions.opts(resp, base_url: "https://gw.example/v1", request_id: "req_smoke")
-    true = opts[:model_config].api_key == "vk-grant"
-    true = opts[:telemetry_metadata].decision_id == "rd_smoke"
-    true = is_function(opts[:turn_guard], 1)
+    {:ok, binding} =
+      Binding.new(resp,
+        data_plane: %{managed_agents_api: "https://gw.example/v1"},
+        request_id: "req_smoke"
+      )
 
-    ctx = Mimir.Ingest.from_route(resp, "req_smoke")
+    {:ok, target} =
+      Target.new(
+        runtime: "managed",
+        configured_model: @model,
+        runtime_model: false,
+        data_plane: :managed_agents_api
+      )
+
+    {:ok, binding} = Binding.bind(binding, target)
+    config = Binding.model_config(binding)
+    true = config.api_key == "vk-grant"
+    true = config.base_url == "https://gw.example/v1"
+    false = Map.has_key?(config, :model)
+    true = Binding.correlation(binding).decision_id == "rd_smoke"
+    :cont = Binding.guard(binding).(%{usage: %{}, turns: 0})
+
+    ctx = Mimir.Ingest.from_route(resp, binding.request_id)
 
     :ok = Mimir.Ingest.handle_event(ctx, %{"type" => "rma.text_delta", "text" => "hi"})
     [event] = Mimir.TurnEvents.take("req_smoke")
     true = event.raw["decision_id"] == "rd_smoke"
 
-    {:ok, "opts assembled; ingest correlated by decision_id"}
+    {:ok, "target checked; ingest correlated by decision_id"}
   end
 
   defp print_results(results) do
