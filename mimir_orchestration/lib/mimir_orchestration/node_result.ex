@@ -10,7 +10,10 @@ defmodule MimirOrchestration.NodeResult do
   @enforce_keys [:text, :raw]
   defstruct [:text, :terminal, :stop_reason, :raw, usage: %{}]
 
-  @type usage :: %{optional(String.t()) => non_neg_integer()}
+  @typedoc """
+  Usage projections may carry input/output counts, optional cache-read/cache-creation counts, an input-token basis and a completeness flag. Missing measurements remain missing. The adapter's raw result retains provider execution facts.
+  """
+  @type usage :: %{optional(String.t()) => non_neg_integer() | nil | String.t() | boolean()}
 
   @type t :: %__MODULE__{
           text: String.t() | nil,

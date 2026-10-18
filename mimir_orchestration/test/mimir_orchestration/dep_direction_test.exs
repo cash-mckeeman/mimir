@@ -10,9 +10,14 @@ defmodule MimirOrchestration.DepDirectionTest do
               if(System.get_env("MIMIR_WITHOUT_REQ_LLM") == "1", do: [], else: [:req_llm]) ++
               if(System.get_env("MIMIR_WITHOUT_RMA") == "1", do: [], else: [:req_managed_agents])
   @confined [
-    {~r/\bReqManagedAgents\./, "lib/mimir_orchestration/agent_runner/rma.ex"},
-    {~r/\bJido\./, "lib/mimir_orchestration/agent_tool.ex"},
-    {~r/\bReqLLM\./, "lib/mimir_orchestration/steps/llm_step.ex"}
+    {~r/\bReqManagedAgents\./,
+     [
+       "lib/mimir_orchestration/agent_runner/rma.ex",
+       "lib/mimir_orchestration/agent_runner/rma/run.ex",
+       "lib/mimir_orchestration/agent_runner/rma/run_outcome.ex"
+     ]},
+    {~r/\bJido\./, ["lib/mimir_orchestration/agent_tool.ex"]},
+    {~r/\bReqLLM\./, ["lib/mimir_orchestration/steps/llm_step.ex"]}
   ]
   @forbidden [
     ~r/\bOban/,
@@ -31,14 +36,14 @@ defmodule MimirOrchestration.DepDirectionTest do
     files = Path.wildcard("lib/**/*.ex")
     assert files != [], "the lib/**/*.ex glob matched no files: wrong working directory?"
 
-    for {_re, home} <- @confined do
+    for {_re, homes} <- @confined, home <- homes do
       assert home in files, "#{home} is not among the #{length(files)} scanned files"
     end
 
     offenders =
-      for {re, home} <- @confined,
+      for {re, homes} <- @confined,
           path <- files,
-          path != home,
+          path not in homes,
           Regex.match?(re, File.read!(path)),
           do: {path, Regex.source(re)}
 

@@ -7,11 +7,15 @@ defmodule MimirOrchestration.AgentRunner.RMA do
   model configuration, guard and correlation to the Session. Conflicting handle
   controls are refused.
 
+  Successful calls return a `NodeResult` whose `raw` field retains the complete
+  SessionResult. Its usage projection preserves missing cache measurements, input
+  basis and completeness. Session errors remain errors; partial workflow results
+  are not added to the AgentRunner contract.
+
   Without the dependency, returns `{:error, {:missing_dependency, :req_managed_agents}}`.
   """
   @behaviour MimirOrchestration.AgentRunner
 
-  alias Mimir.Binding.Target
   alias MimirOrchestration.AgentRunner.RMA.Reference
   alias MimirOrchestration.NodeResult
 
@@ -92,14 +96,22 @@ defmodule MimirOrchestration.AgentRunner.RMA do
   defp raw_reason(a) when is_atom(a) and not is_nil(a), do: Atom.to_string(a)
   defp raw_reason(other), do: other
 
-  defp usage_map(nil), do: %{}
+  defp usage_map(usage) when is_map(usage) do
+    %{
+      "input_tokens" => Map.get(usage, :input_tokens),
+      "output_tokens" => Map.get(usage, :output_tokens),
+      "cache_read_input_tokens" => Map.get(usage, :cache_read_input_tokens),
+      "cache_creation_input_tokens" => Map.get(usage, :cache_creation_input_tokens),
+      "input_token_basis" => usage |> Map.get(:input_token_basis, :unknown) |> atom_to_string(),
+      "complete?" => Map.get(usage, :complete?, false)
+    }
+  end
 
-  defp usage_map(%{input_tokens: i, output_tokens: o}),
-    do: %{"input_tokens" => i, "output_tokens" => o}
-
-  defp usage_map(_), do: %{}
+  defp usage_map(_usage), do: usage_map(%{})
 
   if Code.ensure_loaded?(ReqManagedAgents) do
+    alias Mimir.Binding.Target
+    alias MimirOrchestration.AgentRunner.RMA.Run
     alias ReqManagedAgents.Provider
 
     defp apply_binding(reference, binding, opts) do
@@ -133,7 +145,7 @@ defmodule MimirOrchestration.AgentRunner.RMA do
     end
 
     defp default_session(provider, {:handle, handle}, opts),
-      do: ReqManagedAgents.Session.run(provider, splat_handle(handle, opts))
+      do: Run.capture(provider, splat_handle(handle, opts)).return
 
     defp splat_handle(handle, opts) when is_list(handle) do
       if Keyword.keyword?(handle), do: Keyword.merge(opts, handle), else: [handle: handle] ++ opts
