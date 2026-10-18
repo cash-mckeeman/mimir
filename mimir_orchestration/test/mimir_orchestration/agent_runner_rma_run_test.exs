@@ -61,7 +61,9 @@ defmodule MimirOrchestration.AgentRunner.RMARunTest do
   end
 
   test "stale outer notifications are neither consumed nor attributed" do
-    stale = %{session_id: "shared-session-id", text: "stale"}
+    {:ok, stale} = Run.capture(Provider, session_opts(count: 777)).return
+    assert stale.session_id == "shared-session-id"
+    assert stale.usage.input_tokens == 777
     send(self(), {:managed_agents_session, stale})
     outcome = Run.capture(Provider, session_opts(open_failure: true))
     assert outcome.return == {:error, :open_failure}
