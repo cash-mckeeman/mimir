@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Routed Orchestration steps carry `Mimir.Binding` through execution. Gateway
+  data-plane URLs are explicit, and conflicting dispatch/handle controls fail.
+- The default RMA adapter accepts typed references and tests against RMA 0.14.
+  Successful usage projections retain cache coverage and input-token basis.
+- Routed model steps use the declared chat-completions endpoint and grant key.
+
 ## 0.7.0 (2026-10-07)
 
 First release on Hex.
