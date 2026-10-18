@@ -170,7 +170,14 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     assert {:ok, %NodeResult{stop_reason: %{"type" => "end_turn"}, usage: usage}} =
              AgentRunner.RMA.run(reference(:prov, {:handle, "h"}), "q", session_fun: session_fun)
 
-    assert usage == %{"input_tokens" => 1, "output_tokens" => 2}
+    assert usage == %{
+             "input_tokens" => 1,
+             "output_tokens" => 2,
+             "cache_read_input_tokens" => nil,
+             "cache_creation_input_tokens" => nil,
+             "input_token_basis" => "unknown",
+             "complete?" => false
+           }
   end
 
   test "session errors pass through" do
@@ -210,7 +217,15 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
       assert {:ok, %NodeResult{text: "pong", usage: usage, raw: raw}} =
                AgentRunner.RMA.run(reference(provider, ref), "ping", handler: handler)
 
-      assert usage == %{"input_tokens" => 3, "output_tokens" => 1}
+      assert usage == %{
+               "input_tokens" => 3,
+               "output_tokens" => 1,
+               "cache_read_input_tokens" => nil,
+               "cache_creation_input_tokens" => nil,
+               "input_token_basis" => "inclusive",
+               "complete?" => false
+             }
+
       assert raw.text == "pong"
 
       assert_receive {:chat, [%{"role" => "system", "content" => "be brief"} | rest]}
