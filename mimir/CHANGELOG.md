@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- `Mimir.Sessions`; compose `Mimir.Binding` with an execution target instead.
+
 `Mimir.Binding` turns a route decision into execution inputs in one place.
 `new/2` builds it from a `%Mimir.RouteResponse{}` and refuses a decision it
 cannot execute. `bind/2` checks it against a `Mimir.Binding.Target`, the runtime

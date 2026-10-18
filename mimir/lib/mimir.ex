@@ -31,7 +31,6 @@ defmodule Mimir do
   | `Mimir.Redact` | Secret masking and payload-capture gating helpers. |
   | `Mimir.Guard` | Turn-guard builders for a session's between-turn hook — grant-budget halts and mimir-less caps. |
   | `Mimir.Ingest` | Decision-correlated ingestion of raw session events, promoted to `Mimir.Event` and appended to `Mimir.TurnEvents`. |
-  | `Mimir.Sessions` | Canonical recipe: route response to session options (`model_config`, `turn_guard`, `telemetry_metadata`). |
 
   See the [README](readme.html) for design rules, supervision, configuration,
   and a gateway-less worked example.
