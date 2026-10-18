@@ -7,7 +7,7 @@ defmodule MimirOrchestration.Exec do
   dependencies, with agent text projected for model prompts. Missing parameters
   and unresolved references return tagged errors. Results are the steps' values.
 
-  Options: `:router`, `:workflow_id`, `:max_concurrency`, `:step_timeout` and
+  Options: `:router`, `:data_plane`, `:workflow_id`, `:max_concurrency`, `:step_timeout` and
   `:executor` pass to `MimirOrchestration.Runner.run/2`; `:agent_runner` (default
   `MimirOrchestration.AgentRunner.RMA`), `:agent_runner_opts` and `:llm_opts`
   configure dispatch. All but `:executor` cross the executor seam, so they must be
@@ -29,7 +29,14 @@ defmodule MimirOrchestration.Exec do
 
       runner_opts =
         opts
-        |> Keyword.take([:router, :workflow_id, :max_concurrency, :step_timeout, :executor])
+        |> Keyword.take([
+          :router,
+          :data_plane,
+          :workflow_id,
+          :max_concurrency,
+          :step_timeout,
+          :executor
+        ])
         |> Keyword.merge(run: {__MODULE__, :dispatch, [config]}, params: params)
 
       compiled.steps |> Enum.map(&lower_step/1) |> Runner.run(runner_opts)
@@ -40,15 +47,35 @@ defmodule MimirOrchestration.Exec do
   # The :run MFA every lowered plan dispatches through.
   @spec dispatch(StepCall.t(), map()) :: {:ok, term()} | {:error, term()}
   def dispatch(%StepCall{target: {:agent, ref, runtime}, input: input, opts: opts}, config) do
-    opts = opts |> Keyword.merge(config.agent_runner_opts) |> maybe_put(:runtime, runtime)
-    config.agent_runner.run(ref, input, opts)
+    with {:ok, opts} <- dispatch_opts(opts, config.agent_runner_opts) do
+      config.agent_runner.run(ref, input, maybe_put(opts, :runtime, runtime))
+    end
   end
 
   def dispatch(%StepCall{target: {:tool, callable}, input: input, opts: opts}, _config),
     do: ToolStep.run(callable, input, opts)
 
-  def dispatch(%StepCall{target: :llm, input: prompt, opts: opts}, config),
-    do: LlmStep.run(prompt, Keyword.merge(opts, config.llm_opts))
+  def dispatch(%StepCall{target: :llm, input: prompt, opts: opts}, config) do
+    with {:ok, opts} <- dispatch_opts(opts, config.llm_opts), do: LlmStep.run(prompt, opts)
+  end
+
+  @routed_controls [:binding, :model, :model_config, :turn_guard, :telemetry_metadata]
+
+  defp dispatch_opts(opts, extra) do
+    conflict =
+      if Keyword.has_key?(opts, :binding),
+        do: Enum.find(@routed_controls, &Keyword.has_key?(extra, &1))
+
+    if conflict do
+      {:error, {:routed_option_conflict, conflict}}
+    else
+      {:ok,
+       Keyword.merge(opts, extra, fn
+         :metadata, owned, additional -> Map.merge(additional, owned)
+         _key, _owned, value -> value
+       end)}
+    end
+  end
 
   defp check_params(compiled, params) do
     case Enum.reject(compiled.params, &Map.has_key?(params, &1)) do

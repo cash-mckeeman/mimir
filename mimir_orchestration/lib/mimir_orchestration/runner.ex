@@ -1,7 +1,7 @@
 defmodule MimirOrchestration.Runner do
   @moduledoc """
   Runs lowered steps through an executor (`MimirOrchestration.Executor`). Each
-  routed step gets a grant and a turn guard from the router; `route: false` steps
+  routed step carries a Binding from the router; `route: false` steps
   skip routing. With the default executor, when a step fails the rest of its wave
   finishes, then the run stops.
 
@@ -13,6 +13,9 @@ defmodule MimirOrchestration.Runner do
       with `{:bad_return, other}`. A plain-data `:run` of another shape returns
       `{:error, {:not_a_callable, run}}` and no step runs.
     * `:router` — `{module, opts}`, where `module` implements `Mimir.RouterClient`.
+    * `:data_plane` — gateway base URLs keyed by `:chat_completions` or
+      `:managed_agents_api`; default `%{}`. Routed Bindings are constructed after
+      the executor payload boundary. The Binding constructor validates the URLs.
     * `:workflow_id` — default a random `"wf-…"`.
     * `:params` — the run's params, which `%MimirOrchestration.StepInput{}` inputs
       resolve against; default `%{}`.
