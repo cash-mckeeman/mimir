@@ -138,7 +138,13 @@ defmodule Integration.ExecutionBindingContractTest do
     end
   end
 
-  test "an incompatible model target refuses without HTTP", %{counter: counter, base: base} do
+  test "an incompatible model target refuses without HTTP", %{
+    bypass: bypass,
+    counter: counter,
+    base: base
+  } do
+    ExecutionBindingHTTP.stub(bypass, self(), counter, "/chat/completions")
+
     assert {:error,
             {:step_failed, "ask", {:target_mismatch, {:plane, {:no_url_for, :chat_completions}}}}} =
              Exec.run(compiled("llm"), %{},
@@ -153,6 +159,18 @@ defmodule Integration.ExecutionBindingContractTest do
              )
 
     assert Agent.get(counter, & &1) == 0
+    refute_received {:wire, _, _, _}
+
+    assert {:ok, %{results: %{"ask" => "ok"}}} =
+             Exec.run(compiled("llm"), %{},
+               router: {Router, []},
+               data_plane: %{chat_completions: base}
+             )
+
+    assert Agent.get(counter, & &1) == 1
+
+    assert_received {:wire, "/chat/completions", ["Bearer vk-test-binding"],
+                     "anthropic:claude-sonnet-4-6"}
   end
 
   defp compiled(kind, provider \\ ReqManagedAgents.Providers.Local, spec \\ %{}) do
