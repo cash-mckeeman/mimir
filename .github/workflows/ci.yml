@@ -236,7 +236,14 @@ jobs:
           echo "RMA_VERSION=${declared#== }" >> "$GITHUB_ENV"
       - name: The pinned release is the one resolved (mix deps prints the version once it is compiled)
         run: mix deps | grep -E "^\* req_managed_agents ${RMA_VERSION//./\\.} " || { mix deps; exit 1; }
-      - run: mix test test/mimir_orchestration/agent_runner_rma_test.exs test/mimir_orchestration/composition_e2e_test.exs
+      - run: >-
+          mix test
+          test/mimir_orchestration/agent_runner_rma_reference_test.exs
+          test/mimir_orchestration/agent_runner_rma_binding_test.exs
+          test/mimir_orchestration/agent_runner_rma_run_test.exs
+          test/mimir_orchestration/agent_runner_rma_run_outcome_test.exs
+          test/mimir_orchestration/agent_runner_rma_test.exs
+          test/mimir_orchestration/composition_e2e_test.exs
 
   orchestration-without-rma:
     needs: detect-changes
