@@ -39,11 +39,18 @@ defmodule MimirOrchestration.ExecutorTest do
   # Reports what routing gave the step: the granted model and key, the decision
   # id (which carries the fan-out hint), and the turn guard's verdict on a fresh turn.
   defmodule RoutedRunner do
+    alias Mimir.Binding
+    alias Mimir.Binding.Target
     @behaviour MimirOrchestration.AgentRunner
     @impl true
     def run(_ref, input, opts) do
-      %{"model" => model, "key" => key} = opts[:model]
-      verdict = opts[:turn_guard].(%{usage: %{}, turns: 0})
+      {:ok, target} =
+        Target.new(runtime: "local", runtime_model: true, data_plane: :none)
+
+      {:ok, binding} = Binding.bind(opts[:binding], target)
+      model = binding.placement.model
+      key = binding.grant.key
+      verdict = Binding.guard(binding).(%{usage: %{}, turns: 0})
       text = Enum.join([model, key, opts[:metadata][:decision_id], verdict, input], " ")
       {:ok, %NodeResult{text: text, raw: %{}}}
     end
@@ -76,6 +83,26 @@ defmodule MimirOrchestration.ExecutorTest do
                run: {Run, :ok, [[]]},
                router: {Mimir.RouterClient.HTTP, [capture: %{to: self()}]}
              )
+  end
+
+  for {kind, value} <- [pid: quote(do: self()), function: quote(do: fn -> :ok end)] do
+    test "a #{kind} in data-plane configuration is refused before execution" do
+      assert {:error, {:not_serialisable, [:data_plane, :chat_completions], unquote(kind)}} =
+               refused(run: {Run, :ok, [[]]}, data_plane: %{chat_completions: unquote(value)})
+    end
+  end
+
+  test "the payload contains URL data without a routed Binding or guard" do
+    assert {:ok, payload} =
+             Executor.Payload.new(steps(),
+               run: {Run, :ok, [[]]},
+               data_plane: %{chat_completions: "http://127.0.0.1:8080/v1"}
+             )
+
+    assert payload.data_plane == %{chat_completions: "http://127.0.0.1:8080/v1"}
+    assert payload == payload |> :erlang.term_to_binary() |> :erlang.binary_to_term()
+    refute Map.has_key?(payload, :binding)
+    refute Map.has_key?(payload, :turn_guard)
   end
 
   test "a pid in the params is refused by path" do

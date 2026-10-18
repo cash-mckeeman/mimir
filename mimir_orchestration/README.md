@@ -4,10 +4,8 @@ Compile and execute workflows of agent, tool and model steps. The compiler
 checks dependency order, references, registered targets and declared budgets.
 The host supplies agent references, tool callables and a router.
 
-A routed step dispatches only on a placement with a grant: the runner forwards
-the grant's model configuration and a grant-derived turn guard to the step.
-Agent runners own guard enforcement; model-call transports own
-their runtime budget enforcement, and `LlmStep` does not apply a local turn guard.
+Routed steps carry `opts[:binding]`; adapters bind their target before applying
+execution controls. Unrouted steps retain their explicitly supplied options.
 Workflow and step identifiers accompany routing, agent metadata and telemetry.
 Tool steps execute locally without routing.
 
@@ -69,8 +67,7 @@ unconsumed, nonterminal steps without executing the workflow.
   `router: {module, opts}`. Each routed step sends it a flat request: the step
   descriptor's fields at the top level, as `Mimir.Descriptor.parse/1` reads them,
   plus `workflow_id`, `step_id`, `parent_step_id`, `fanout_hint` and `path`. A
-  `Mimir.RouteResponse` placement with a grant produces the step's model map and
-  a `Mimir.Guard` turn guard. Any other `{:ok, _}` or `{:error, _}` fails the step
+  `Mimir.RouteResponse` placement with a grant produces the step's Binding. Any other `{:ok, _}` or `{:error, _}` fails the step
   with `{:routing_failed, reason}`; a router that raises, exits, throws or returns
   anything else fails it with `{:step_crashed, step_id, reason}`.
   `Mimir.RouterClient.HTTP` is the HTTP transport.
@@ -92,6 +89,19 @@ unconsumed, nonterminal steps without executing the workflow.
 - With the optional `jido` dependency, `MimirOrchestration.AgentTool` wraps an
   agent reference as a `Jido.Action`. Its context can override the configured
   runtime and supply correlation metadata.
+
+```elixir
+{:ok, reference} =
+  MimirOrchestration.AgentRunner.RMA.Reference.new(
+    provider: ReqManagedAgents.Providers.Local,
+    runtime: "local",
+    resource: {:handle, local_handle}
+  )
+
+agent_registry = %{"assistant" => reference}
+```
+
+Pass gateway URLs explicitly as `data_plane: %{chat_completions: gateway_base}` or with the managed-agents API wire. A routed Binding is constructed during dispatch and carries the grant credential; do not persist it. Custom AgentRunner implementations keep their own reference types.
 
 ## Dependencies
 

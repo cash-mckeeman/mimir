@@ -21,6 +21,7 @@ defmodule MimirOrchestration.Executor.Payload do
     :workflow_id,
     :run,
     router: nil,
+    data_plane: %{},
     params: %{},
     max_concurrency: 4,
     step_timeout: 120_000,
@@ -34,6 +35,7 @@ defmodule MimirOrchestration.Executor.Payload do
           workflow_id: String.t(),
           run: mfa_ref(),
           router: {module(), keyword()} | nil,
+          data_plane: Mimir.Binding.data_plane_urls(),
           params: map(),
           max_concurrency: pos_integer(),
           step_timeout: timeout(),
@@ -46,6 +48,10 @@ defmodule MimirOrchestration.Executor.Payload do
   Options: `:run` (required), `:router`, `:workflow_id` (default a random `"wf-…"`),
   `:params` (default `%{}`), `:max_concurrency` (4), `:step_timeout` (120 000 ms;
   `:infinity` allowed), `:halt` (`:after_phase`).
+
+  * `:data_plane` — gateway base URLs keyed by `:chat_completions` or
+    `:managed_agents_api`; default `%{}`. Routed Bindings are constructed after
+    the executor payload boundary. The Binding constructor validates the URLs.
 
   A plain-data `:run` that is not `{module, function, extra_args}` returns
   `{:error, {:not_a_callable, run}}`.
@@ -60,6 +66,7 @@ defmodule MimirOrchestration.Executor.Payload do
       workflow_id: Keyword.get_lazy(opts, :workflow_id, &random_workflow_id/0),
       run: Keyword.fetch!(opts, :run),
       router: Keyword.get(opts, :router),
+      data_plane: Keyword.get(opts, :data_plane, %{}),
       params: Keyword.get(opts, :params, %{}),
       max_concurrency: Keyword.get(opts, :max_concurrency, 4),
       step_timeout: Keyword.get(opts, :step_timeout, 120_000),

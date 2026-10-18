@@ -2,7 +2,7 @@ defmodule MimirOrchestration.RouteContractTest do
   @moduledoc """
   The route request the runner sends parses as a `Mimir.Descriptor`; a placement
   `Mimir.Oracle` chose, rendered as the gateway's wire body, parses as a
-  `Mimir.RouteResponse`; and the dispatch receives the grant's model and a turn guard.
+  `Mimir.RouteResponse`; and dispatch receives the corresponding Binding.
   """
   use ExUnit.Case, async: true
 
@@ -101,7 +101,8 @@ defmodule MimirOrchestration.RouteContractTest do
              Runner.run(steps,
                router: {WireRouter, [owner: name]},
                run: {__MODULE__, :report, [name]},
-               workflow_id: "wf-c"
+               workflow_id: "wf-c",
+               data_plane: %{chat_completions: "http://127.0.0.1:8080/v1"}
              )
 
     assert_received {:parsed, descriptor, request}
@@ -128,8 +129,18 @@ defmodule MimirOrchestration.RouteContractTest do
     refute Map.has_key?(request, "descriptor")
 
     assert_received {:dispatched, opts}
-    assert opts[:model] == %{"key" => "vk-contract", "model" => "ollama:model-tools"}
-    assert is_function(opts[:turn_guard], 1)
+
+    assert %Mimir.Binding{data_plane_urls: %{chat_completions: "http://127.0.0.1:8080/v1"}} =
+             binding = opts[:binding]
+
+    assert binding.request_id == "rd_contract"
+    assert binding.workflow_id == "wf-c"
+    assert binding.step_id == "a"
+    assert binding.placement.model == "ollama:model-tools"
+    assert binding.grant.key == "vk-contract"
+    refute Keyword.has_key?(opts, :model)
+    refute Keyword.has_key?(opts, :turn_guard)
+    refute_received {:dispatched, _}
     assert opts[:metadata][:decision_id] == "rd_contract"
   end
 end

@@ -9,7 +9,7 @@ knob() { # desc, want-substring, VAR=value...
   if grep -qF -- "$want" <<<"$out"; then echo "ok: $desc"; else echo "FAIL: $desc (want '$want')"; sed 's/^/    /' <<<"$out" | head -3; fail=1; fi
 }
 knob "publishing refuses MIMIR_WITHOUT_RMA"   "MIMIR_PUBLISH cannot be combined" MIMIR_PUBLISH=1 MIMIR_WITHOUT_RMA=1
-knob "publishing refuses MIMIR_RMA_PIN"       "MIMIR_PUBLISH cannot be combined" MIMIR_PUBLISH=1 MIMIR_RMA_PIN=0.10.0
+knob "publishing refuses MIMIR_RMA_PIN"       "MIMIR_PUBLISH cannot be combined" MIMIR_PUBLISH=1 MIMIR_RMA_PIN=0.14.0
 knob "publishing refuses MIMIR_WITHOUT_REQ_LLM" "MIMIR_PUBLISH cannot be combined with MIMIR_WITHOUT_REQ_LLM" MIMIR_PUBLISH=1 MIMIR_WITHOUT_REQ_LLM=1
-knob "a pre-release pin is outside the range" 'MIMIR_RMA_PIN "0.11.0-rc.1" is outside' MIMIR_RMA_PIN=0.11.0-rc.1
+knob "a pre-release pin is outside the range" 'MIMIR_RMA_PIN "0.15.0-rc.1" is outside' MIMIR_RMA_PIN=0.15.0-rc.1
 exit $fail

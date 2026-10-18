@@ -9,8 +9,8 @@ defmodule MimirOrchestration.Executor do
   with the results of the step's dependencies as `upstream` and the size of its wave
   as `fanout`. The payload's `max_concurrency`, `step_timeout` and `halt` are
   settings for the executor to apply; `MimirOrchestration.Executor.InMemory`
-  applies them as `MimirOrchestration.Runner.run/2` documents. Routing, the grant,
-  the turn guard, the dispatch through the `:run` MFA and the
+  applies them as `MimirOrchestration.Runner.run/2` documents. Routing, the Binding,
+  the dispatch through the `:run` MFA and the
   `[:mimir_orchestration, :step]` telemetry span all happen inside `run_step/4`, so
   every executor gets them unchanged. The payload is plain data, so an executor may
   persist it and run it in another process or node.
@@ -87,7 +87,10 @@ defmodule MimirOrchestration.Executor do
         {:error, {:routing_failed, :no_grant}}
 
       {:ok, %Mimir.RouteResponse{verdict: :placement} = resp} ->
-        call(payload, step, routed_opts(payload, step, resp))
+        case routed_opts(payload, step, resp) do
+          {:ok, opts} -> call(payload, step, opts)
+          {:error, reason} -> {:error, {:routing_failed, reason}}
+        end
 
       {:ok, other} ->
         {:error, {:routing_failed, {:invalid_route_response, other}}}
@@ -115,10 +118,15 @@ defmodule MimirOrchestration.Executor do
   end
 
   defp routed_opts(payload, step, resp) do
-    payload
-    |> metadata(step, %{mimir_request_id: resp.decision_id, decision_id: resp.decision_id})
-    |> Keyword.put(:model, %{"key" => resp.grant.key, "model" => resp.placement.model})
-    |> Keyword.put(:turn_guard, Mimir.Guard.for_grant(resp.grant, resp.placement.model))
+    with {:ok, binding} <-
+           Mimir.Binding.new(resp,
+             data_plane: payload.data_plane,
+             workflow_id: payload.workflow_id,
+             step_id: step.id
+           ) do
+      opts = metadata(payload, step, Mimir.Binding.correlation(binding))
+      {:ok, Keyword.put(opts, :binding, binding)}
+    end
   end
 
   defp call(%Payload{run: {module, function, extra_args}}, step, opts) do

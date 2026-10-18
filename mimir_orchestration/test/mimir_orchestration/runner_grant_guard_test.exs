@@ -2,6 +2,8 @@ defmodule MimirOrchestration.RunnerGrantGuardTest do
   # Prices a synthetic model through the global `:mimir, :pricing` config, so it
   # runs outside the async modules that would otherwise see the setting.
   use ExUnit.Case, async: false
+  alias Mimir.Binding
+  alias Mimir.Binding.Target
   alias MimirOrchestration.{Runner, StepCall}
   alias MimirOrchestration.Test.Registered
 
@@ -46,10 +48,16 @@ defmodule MimirOrchestration.RunnerGrantGuardTest do
 
     assert_receive {:opts, opts}
 
+    {:ok, target} =
+      Target.new(runtime: "local", runtime_model: true, data_plane: :none)
+
+    {:ok, binding} = Binding.bind(opts[:binding], target)
+    guard = Binding.guard(binding)
+
     # 10M tokens each way at 1 µ$ per token: only the placed model prices to 20M.
     assert {:halt,
             {:budget_exceeded, %{budget_microdollars: 1_000, cost_microdollars: 20_000_000}}} =
-             opts[:turn_guard].(%{
+             guard.(%{
                usage: %{input_tokens: 10_000_000, output_tokens: 10_000_000},
                turns: 1
              })

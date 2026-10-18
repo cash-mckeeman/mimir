@@ -1,52 +1,74 @@
 defmodule MimirOrchestration.AgentRunner.RMA do
   @moduledoc """
-  Default agent adapter backed by `req_managed_agents`, an optional dependency.
-  It needs `{:req_managed_agents, ">= 0.10.0 and < 0.11.0"}` in your dependencies,
-  or pass another `MimirOrchestration.AgentRunner` as `:agent_runner`. Without it,
-  `run/3` returns `{:error, {:missing_dependency, :req_managed_agents}}`.
+  Default agent adapter backed by the optional `req_managed_agents` dependency.
 
-  References are `{provider, {:spec, spec}}` or `{provider, {:handle, handle}}`.
-  Specs are provisioned through `ReqManagedAgents.provision/2` with its default
-  options; supplied handles skip provisioning. The generic provisioning cache is
-  sufficient for this adapter's in-process reuse; hosts needing lifecycle
-  management own that policy.
+  Accepts an `MimirOrchestration.AgentRunner.RMA.Reference`. A routed call checks
+  the target and native model before provisioning, then applies the Binding's
+  model configuration, guard and correlation to the Session. Conflicting handle
+  controls are refused.
 
-  Model configuration, turn guard and correlation metadata pass to
-  `ReqManagedAgents.Session.run/2`. Keyword-list and map handles are merged into
-  session options; other handles use `:handle`. The result projects text,
-  terminal, usage and the provider's stop reason into a `NodeResult`, whose
-  `raw` field retains the complete result. Atom terminals and stop reasons
-  become strings; other stop reasons pass through.
+  Without the dependency, returns `{:error, {:missing_dependency, :req_managed_agents}}`.
   """
   @behaviour MimirOrchestration.AgentRunner
 
+  alias Mimir.Binding.Target
+  alias MimirOrchestration.AgentRunner.RMA.Reference
   alias MimirOrchestration.NodeResult
 
   @impl true
-  @spec run(term(), term(), keyword()) :: {:ok, NodeResult.t()} | {:error, term()}
-  def run({provider, ref}, input, opts) do
+  @spec run(Reference.t(), term(), keyword()) :: {:ok, NodeResult.t()} | {:error, term()}
+  def run(%Reference{} = reference, input, opts) do
     provision_fun = Keyword.get(opts, :provision_fun, &default_provision/2)
     session_fun = Keyword.get(opts, :session_fun, &default_session/3)
 
-    with {:ok, handle} <- ensure_handle(provider, ref, provision_fun),
-         {:ok, result} <- session_fun.(provider, handle, session_opts(input, opts)) do
+    with {:ok, reference} <- Reference.new(reference),
+         {:ok, session_opts} <- session_opts(reference, input, opts),
+         {:ok, handle} <-
+           ensure_handle(reference.provider, reference.resource, provision_fun),
+         :ok <- check_handle(handle, session_opts),
+         {:ok, result} <- session_fun.(reference.provider, handle, session_opts) do
       {:ok, project(result)}
     end
   end
+
+  def run(_reference, _input, _opts), do: {:error, {:invalid_agent_reference, :reference}}
 
   defp ensure_handle(provider, {:spec, _} = spec, provision_fun),
     do: provision_fun.(provider, spec)
 
   defp ensure_handle(_provider, {:handle, _} = handle, _), do: {:ok, handle}
 
-  defp session_opts(input, opts) do
-    [prompt: input]
-    |> maybe_put(:model_config, opts[:model])
-    |> maybe_put(:turn_guard, opts[:turn_guard])
-    |> maybe_put(:telemetry_metadata, opts[:metadata])
-    |> maybe_put(:handler, opts[:handler])
-    |> maybe_put(:timeout, opts[:timeout])
+  defp session_opts(reference, input, opts) do
+    base =
+      [prompt: input]
+      |> maybe_put(:model_config, opts[:model_config])
+      |> maybe_put(:turn_guard, opts[:turn_guard])
+      |> maybe_put(:telemetry_metadata, opts[:metadata])
+      |> maybe_put(:handler, opts[:handler])
+      |> maybe_put(:timeout, opts[:timeout])
+      |> maybe_put(:max_turns, opts[:max_turns])
+
+    case opts[:binding] do
+      nil -> {:ok, base}
+      %Mimir.Binding{} = binding -> apply_binding(reference, binding, base)
+    end
   end
+
+  defp check_handle({:handle, handle}, opts) when is_map(handle),
+    do: check_handle({:handle, Map.to_list(handle)}, opts)
+
+  defp check_handle({:handle, handle}, opts) when is_list(handle) do
+    if Keyword.keyword?(handle) do
+      case Enum.find([:notify | Keyword.keys(opts)], &Keyword.has_key?(handle, &1)) do
+        nil -> :ok
+        key -> {:error, {:handle_overrides_run_option, key}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp check_handle(_handle, _opts), do: :ok
 
   defp maybe_put(kw, _k, nil), do: kw
   defp maybe_put(kw, k, v), do: Keyword.put(kw, k, v)
@@ -78,6 +100,31 @@ defmodule MimirOrchestration.AgentRunner.RMA do
   defp usage_map(_), do: %{}
 
   if Code.ensure_loaded?(ReqManagedAgents) do
+    alias ReqManagedAgents.Provider
+
+    defp apply_binding(reference, binding, opts) do
+      provider = reference.provider
+
+      with {:ok, target} <-
+             Target.new(
+               runtime: reference.runtime,
+               configured_model: reference.configured_model,
+               runtime_model: Provider.supports?(provider, :runtime_model),
+               data_plane: Provider.data_plane(provider)
+             ),
+           {:ok, binding} <- Mimir.Binding.bind(binding, target),
+           {:ok, _native} <-
+             Provider.native_model(provider, binding.placement.model) do
+        metadata = Map.merge(opts[:telemetry_metadata] || %{}, Mimir.Binding.correlation(binding))
+
+        {:ok,
+         opts
+         |> Keyword.put(:model_config, Mimir.Binding.model_config(binding))
+         |> Keyword.put(:turn_guard, Mimir.Binding.guard(binding))
+         |> Keyword.put(:telemetry_metadata, metadata)}
+      end
+    end
+
     defp default_provision(provider, {:spec, spec}) do
       case ReqManagedAgents.provision(provider, spec) do
         {:ok, handle} -> {:ok, {:handle, handle}}
@@ -97,6 +144,9 @@ defmodule MimirOrchestration.AgentRunner.RMA do
 
     defp splat_handle(handle, opts), do: Keyword.put(opts, :handle, handle)
   else
+    defp apply_binding(_reference, _binding, _opts),
+      do: {:error, {:missing_dependency, :req_managed_agents}}
+
     defp default_provision(_provider, _spec),
       do: {:error, {:missing_dependency, :req_managed_agents}}
 

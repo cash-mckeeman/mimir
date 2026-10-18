@@ -2,6 +2,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
   use ExUnit.Case, async: true
   @moduletag :rma
   alias MimirOrchestration.{AgentRunner, Compiler, Exec, NodeResult, Policy}
+  alias MimirOrchestration.AgentRunner.RMA.Reference
 
   if Code.ensure_loaded?(ReqManagedAgents.Provider) do
     defmodule ScriptedLocal do
@@ -41,6 +42,10 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
         {:ok, %{"choices" => [%{"message" => message, "finish_reason" => reason}]}}
       end
 
+      @impl true
+      defdelegate supports_runtime_model?(), to: Local
+      @impl true
+      defdelegate data_plane(), to: Local
       @impl true
       defdelegate mode(), to: Local
       @impl true
@@ -117,8 +122,8 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     guard = fn _ -> :cont end
 
     assert {:ok, %NodeResult{text: "42", stop_reason: "end_turn", terminal: "end_turn"} = result} =
-             AgentRunner.RMA.run({:prov, {:spec, "da"}}, "meaning?",
-               model: %{"model" => "m"},
+             AgentRunner.RMA.run(reference(:prov, {:spec, "da"}), "meaning?",
+               model_config: %{model: "m"},
                turn_guard: guard,
                metadata: %{workflow_id: "wf", step_id: "s"},
                provision_fun: provision_fun,
@@ -138,7 +143,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     assert_receive {:session_opts, opts}
     assert opts[:turn_guard] == guard
     assert opts[:telemetry_metadata] == %{workflow_id: "wf", step_id: "s"}
-    assert opts[:model_config] == %{"model" => "m"}
+    assert opts[:model_config] == %{model: "m"}
     assert opts[:prompt] == "meaning?"
   end
 
@@ -148,7 +153,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     end
 
     assert {:ok, %NodeResult{text: "ok"}} =
-             AgentRunner.RMA.run({:prov, {:handle, "h"}}, "q", session_fun: session_fun)
+             AgentRunner.RMA.run(reference(:prov, {:handle, "h"}), "q", session_fun: session_fun)
   end
 
   test "raw-native stop_reason maps pass through JSON-encodable, never to_string'd" do
@@ -163,7 +168,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     end
 
     assert {:ok, %NodeResult{stop_reason: %{"type" => "end_turn"}, usage: usage}} =
-             AgentRunner.RMA.run({:prov, {:handle, "h"}}, "q", session_fun: session_fun)
+             AgentRunner.RMA.run(reference(:prov, {:handle, "h"}), "q", session_fun: session_fun)
 
     assert usage == %{"input_tokens" => 1, "output_tokens" => 2}
   end
@@ -172,7 +177,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     session_fun = fn _, _, _ -> {:error, :kaput} end
 
     assert {:error, :kaput} =
-             AgentRunner.RMA.run({:prov, {:handle, "h"}}, "q", session_fun: session_fun)
+             AgentRunner.RMA.run(reference(:prov, {:handle, "h"}), "q", session_fun: session_fun)
   end
 
   # No injected funs: the real provision/2 and Session.run/2 run the in-process Local
@@ -203,7 +208,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
 
     for ref <- [{:spec, spec}, {:handle, spec}] do
       assert {:ok, %NodeResult{text: "pong", usage: usage, raw: raw}} =
-               AgentRunner.RMA.run({provider, ref}, "ping", handler: handler)
+               AgentRunner.RMA.run(reference(provider, ref), "ping", handler: handler)
 
       assert usage == %{"input_tokens" => 3, "output_tokens" => 1}
       assert raw.text == "pong"
@@ -245,7 +250,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     }
 
     policy = %Policy{
-      agent_registry: %{"asker" => {__MODULE__.ScriptedLocal, {:handle, spec}}},
+      agent_registry: %{"asker" => reference(__MODULE__.ScriptedLocal, {:handle, spec})},
       budget_ceiling_microdollars: 10
     }
 
@@ -256,5 +261,10 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
                router: {Router, []},
                agent_runner_opts: [handler: LookupHandler]
              )
+  end
+
+  defp reference(provider, resource) do
+    {:ok, ref} = Reference.new(provider: provider, runtime: "local", resource: resource)
+    ref
   end
 end

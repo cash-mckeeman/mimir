@@ -21,6 +21,7 @@ defmodule MimirOrchestration.ExecTest do
     @impl true
     def run({:rma, name}, input, opts) do
       send(opts[:owner], {:agent_run, name, input, opts[:metadata]})
+      send(opts[:owner], {:agent_options, opts})
       {:ok, %NodeResult{text: "out-#{name}", stop_reason: "end_turn", raw: %{}}}
     end
   end
@@ -146,4 +147,72 @@ defmodule MimirOrchestration.ExecTest do
                llm_opts: [chat: fn _ -> {:ok, "t"} end]
              )
   end
+
+  test "Exec forwards explicit URLs and preserves binding correlation over extra metadata" do
+    assert {:ok, _} =
+             Exec.run(compiled(), %{"q" => "test"},
+               router: {Router, []},
+               workflow_id: "wf-binding",
+               data_plane: %{chat_completions: "http://127.0.0.1:8080/v1"},
+               agent_runner: StubRunner,
+               agent_runner_opts: [
+                 owner: Registered.self_name(),
+                 metadata: %{workflow_id: "spoof", decision_id: "spoof", custom: "kept"}
+               ]
+             )
+
+    assert_received {:agent_options, opts}
+
+    assert %Mimir.Binding{data_plane_urls: %{chat_completions: "http://127.0.0.1:8080/v1"}} =
+             opts[:binding]
+
+    assert opts[:metadata].workflow_id == "wf-binding"
+    assert opts[:metadata].decision_id == "d-analyze"
+    assert opts[:metadata].custom == "kept"
+    refute_received {:agent_options, _}
+  end
+
+  for key <- [:binding, :model, :model_config, :turn_guard, :telemetry_metadata],
+      kind <- [:agent, :llm] do
+    test "a routed #{kind} refuses the #{key} dispatch override" do
+      {plan, option_key, id} =
+        if unquote(kind) == :agent do
+          {compiled(), :agent_runner_opts, "analyze"}
+        else
+          {%Compiled{
+             name: "model",
+             version: 1,
+             params: [],
+             steps: [
+               %{
+                 id: "model",
+                 kind: "llm",
+                 target: nil,
+                 runtime: nil,
+                 input_template: "q",
+                 descriptor: %{},
+                 depends_on: []
+               }
+             ]
+           }, :llm_opts, "model"}
+        end
+
+      opts =
+        [router: {Router, []}, agent_runner: StubRunner]
+        |> Keyword.put(option_key, [{unquote(key), "override"}])
+
+      assert {:error, {:step_failed, ^id, {:routed_option_conflict, unquote(key)}}} =
+               Exec.run(plan, %{"q" => "test"}, opts)
+
+      refute_received {:agent_run, _, _, _}
+    end
+  end
+
+  test "unrouted model dispatch retains an explicitly supplied model" do
+    config = %{llm_opts: [model: "explicit", chat: {__MODULE__, :model_echo, []}]}
+    call = %MimirOrchestration.StepCall{target: :llm, input: "q", opts: [metadata: %{}]}
+    assert {:ok, "explicit"} = Exec.dispatch(call, config)
+  end
+
+  def model_echo(%{model: model}), do: {:ok, model}
 end

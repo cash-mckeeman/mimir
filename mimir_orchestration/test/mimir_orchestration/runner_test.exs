@@ -139,7 +139,7 @@ defmodule MimirOrchestration.RunnerTest do
       end
     end
 
-    test "dispatch gets turn_guard and decision_id metadata" do
+    test "dispatch gets an unbound Binding and decision_id metadata" do
       steps = [
         %{id: "a", target: :t, input: 1, descriptor: %{"task_class" => "t"}, depends_on: []}
       ]
@@ -152,10 +152,11 @@ defmodule MimirOrchestration.RunnerTest do
                )
 
       assert_receive {:ran, opts}
-      assert is_function(opts[:turn_guard], 1)
+      assert %Mimir.Binding{target: nil} = opts[:binding]
+      refute Keyword.has_key?(opts, :turn_guard)
+      refute Keyword.has_key?(opts, :model)
       assert opts[:metadata][:decision_id] == "dec-a"
       assert opts[:metadata][:mimir_request_id] == "dec-a"
-      assert :cont == opts[:turn_guard].(%{usage: %{input_tokens: 0, output_tokens: 0}, turns: 0})
     end
   end
 
@@ -443,5 +444,44 @@ defmodule MimirOrchestration.RunnerTest do
     refute_received {:stopped, "s"}
   after
     :telemetry.detach("halt-immediate")
+  end
+
+  defmodule ResponseRouter do
+    @behaviour Mimir.RouterClient
+    @impl true
+    def route(_req, opts), do: {:ok, Keyword.fetch!(opts, :response)}
+  end
+
+  test "invalid data-plane configuration refuses dispatch through Binding" do
+    {:ok, response} = FakeRouter.route(%{step_id: "a"}, [])
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+
+    for urls <- [%{chat_completions: ""}, %{unsupported: "http://127.0.0.1"}, "invalid"] do
+      assert {:error,
+              {:step_failed, "a", {:routing_failed, {:invalid_binding, {:option, :data_plane}}}}} =
+               Runner.run(steps,
+                 router: {ResponseRouter, [response: response]},
+                 data_plane: urls,
+                 run: {__MODULE__, :never, []}
+               )
+    end
+  end
+
+  test "conflicting route correlation refuses dispatch" do
+    {:ok, response} = FakeRouter.route(%{step_id: "a"}, [])
+    steps = [%{id: "a", target: :t, input: 1, descriptor: %{}, depends_on: []}]
+
+    for key <- [:workflow_id, :step_id] do
+      response = Map.put(response, key, "conflict")
+
+      assert {:error,
+              {:step_failed, "a",
+               {:routing_failed, {:invalid_binding, {:correlation_conflict, ^key}}}}} =
+               Runner.run(steps,
+                 workflow_id: "wf",
+                 router: {ResponseRouter, [response: response]},
+                 run: {__MODULE__, :never, []}
+               )
+    end
   end
 end

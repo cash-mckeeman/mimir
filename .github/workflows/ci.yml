@@ -215,10 +215,10 @@ jobs:
       matrix:
         include:
           # The range is mix.exs's @rma_range. floor is its lowest release; ceiling is the
-          # highest release in range CI has run, moved by hand. At 0.7.0 both resolve
-          # to 0.10.0, the only release in range.
+          # highest release in range CI has run, moved by hand. Both currently resolve
+          # to 0.14.0.
           - {bound: floor, version: floor}
-          - {bound: ceiling, version: "0.10.0"}
+          - {bound: ceiling, version: "0.14.0"}
     env:
       MIMIR_RMA_PIN: ${{ matrix.version }}
     steps:

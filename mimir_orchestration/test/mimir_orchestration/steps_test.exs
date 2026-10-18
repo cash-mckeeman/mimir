@@ -45,6 +45,74 @@ defmodule MimirOrchestration.StepsTest do
     refute_receive {:chat, _, _}, 10
   end
 
+  test "routed chat-completions selects its declared wire and per-call grant" do
+    binding = route_binding(%{chat_completions: "http://127.0.0.1:8080/prefix/v1"})
+
+    assert {:ok, "TITLE"} =
+             LlmStep.run("q",
+               binding: binding,
+               chat: {__MODULE__, :capture_chat, [Registered.self_name()]}
+             )
+
+    assert_received {:chat_call,
+                     %{
+                       model: %{
+                         provider: :openai,
+                         id: "anthropic:claude-sonnet-4-6",
+                         base_url: "http://127.0.0.1:8080/prefix/v1",
+                         extra: %{wire: %{protocol: "openai_chat"}}
+                       },
+                       prompt: "q",
+                       opts: [api_key: "vk-test-binding"]
+                     }}
+
+    refute_received {:chat_call, _}
+  end
+
+  test "control-plane routed model carries no grant credential" do
+    assert {:ok, "TITLE"} =
+             LlmStep.run("q",
+               binding: route_binding(%{}),
+               chat: {__MODULE__, :capture_chat, [Registered.self_name()]}
+             )
+
+    assert_received {:chat_call, %{model: "anthropic:claude-sonnet-4-6", opts: []}}
+  end
+
+  test "incompatible routed model target refuses before chat" do
+    for {binding, reason} <- [
+          {route_binding(%{managed_agents_api: "http://127.0.0.1:8080"}),
+           {:plane, {:no_url_for, :chat_completions}}},
+          {route_binding(%{}, "managed"), {:runtime, "managed", "local"}}
+        ] do
+      assert {:error, {:target_mismatch, ^reason}} =
+               LlmStep.run("q",
+                 binding: binding,
+                 chat: {__MODULE__, :capture_chat, [Registered.self_name()]}
+               )
+    end
+
+    refute_received {:chat_call, _}
+  end
+
+  def capture_chat(call, to) do
+    send(to, {:chat_call, call})
+    {:ok, "TITLE"}
+  end
+
+  defp route_binding(urls, runtime \\ "local") do
+    {:ok, response} =
+      Mimir.RouteResponse.new(%{
+        "verdict" => "placement",
+        "decision_id" => "decision-test",
+        "placement" => %{"model" => "anthropic:claude-sonnet-4-6", "runtime" => runtime},
+        "grant" => %{"key" => "vk-test-binding"}
+      })
+
+    {:ok, binding} = Mimir.Binding.new(response, data_plane: urls)
+    binding
+  end
+
   @tag :without_req_llm
   test "LlmStep without :chat and without req_llm names the missing dependency" do
     refute Code.ensure_loaded?(ReqLLM),

@@ -7,7 +7,7 @@ defmodule MimirOrchestration.MixProject do
 
   # req_managed_agents is optional, with a tested range. The ceiling moves only after
   # CI has run the suite against the new release, in a patch of this package alone.
-  @rma_range ">= 0.10.0 and < 0.11.0"
+  @rma_range ">= 0.14.0 and < 0.15.0"
 
   def project do
     [
@@ -107,7 +107,7 @@ defmodule MimirOrchestration.MixProject do
     end
   end
 
-  # ">= 0.10.0 and < 0.11.0" -> "0.10.0".
+  # ">= 0.14.0 and < 0.15.0" -> "0.14.0".
   defp rma_floor do
     ">= " <> rest = @rma_range
     [version | _] = String.split(rest, " and ")
