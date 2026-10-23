@@ -41,7 +41,12 @@ CREATE TABLE IF NOT EXISTS runs (
     turns              INTEGER,
     input_tokens       BIGINT,
     output_tokens      BIGINT,
-    cost_microdollars  BIGINT,             -- source-provided cost, missing values become zero
+    cache_read_input_tokens BIGINT,
+    cache_creation_input_tokens BIGINT,
+    input_token_basis  TEXT,
+    usage_complete     BOOLEAN,
+    in_flight          TEXT,
+    cost_microdollars  BIGINT,             -- source-provided cost, unknown stays NULL
     started_at         TIMESTAMP,
     finished_at        TIMESTAMP,
     source_file        TEXT NOT NULL

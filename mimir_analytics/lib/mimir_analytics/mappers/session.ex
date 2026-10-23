@@ -11,8 +11,7 @@ defmodule MimirAnalytics.Mappers.Session do
   `terminal` and `stop_reason` retain the producer's vocabulary; a non-string
   stop reason is stored with `inspect/1`. `outcome` is the producer's derived
   status, and `error_class` is its classification. Raw `error` terms are not
-  read. Missing optional values remain null, while missing usage and cost
-  values become zero. Cost comes from the source; per-call model rows are
+  read. Missing measurements, coverage and cost remain null. Cost comes from the source; per-call model rows are
   never synthesized.
 
   Custom and server tool uses retain their order. Flat `tool_calls` roll-ups
@@ -127,9 +126,14 @@ defmodule MimirAnalytics.Mappers.Session do
         "stop_reason" => record["stop_reason"],
         "error_class" => record["error_class"],
         "turns" => record["turns"],
+        "in_flight" => record["in_flight"],
         "usage" => %{
           "input_tokens" => record["input_tokens"],
-          "output_tokens" => record["output_tokens"]
+          "output_tokens" => record["output_tokens"],
+          "cache_read_input_tokens" => record["cache_read_input_tokens"],
+          "cache_creation_input_tokens" => record["cache_creation_input_tokens"],
+          "input_token_basis" => record["input_token_basis"],
+          "complete?" => record["usage_complete?"]
         },
         "tool_calls" => record["tool_calls"] || []
       }

@@ -30,7 +30,7 @@ defmodule MimirAnalytics.CaptureSeamCrosscheckTest do
 
     assert [
              [run_id_1, "wf-fixture-demo", "end_turn", stop_reason_1, 3, 512, 128],
-             [run_id_2, nil, "terminated", "max_tokens", nil, 0, 0]
+             [run_id_2, nil, "terminated", "max_tokens", nil, nil, nil]
            ] = rows
 
     # session_id is authoritative over caller-local correlation keys.

@@ -30,6 +30,11 @@ defmodule MimirAnalytics.Row.Run do
     :turns,
     :input_tokens,
     :output_tokens,
+    :cache_read_input_tokens,
+    :cache_creation_input_tokens,
+    :input_token_basis,
+    :usage_complete,
+    :in_flight,
     :cost_microdollars,
     :started_at,
     :finished_at,
@@ -58,9 +63,14 @@ defmodule MimirAnalytics.Row.Run do
           # a classification only, never the raw error term
           error_class: String.t() | nil,
           turns: integer() | nil,
-          input_tokens: integer(),
-          output_tokens: integer(),
-          cost_microdollars: integer(),
+          input_tokens: non_neg_integer() | nil,
+          output_tokens: non_neg_integer() | nil,
+          cache_read_input_tokens: non_neg_integer() | nil,
+          cache_creation_input_tokens: non_neg_integer() | nil,
+          input_token_basis: String.t() | nil,
+          usage_complete: boolean() | nil,
+          in_flight: String.t() | nil,
+          cost_microdollars: non_neg_integer() | nil,
           started_at: String.t() | nil,
           finished_at: String.t() | nil,
           source_file: String.t()
@@ -69,7 +79,7 @@ defmodule MimirAnalytics.Row.Run do
   @doc """
   Build a run row from `meta`, `result` and `source_file`.
   `outcome` and `error_class` are source classifications; raw `error` terms
-  are not read. Missing usage and cost values default to zero.
+  are not read. Missing measurements and cost remain null.
   """
   @spec new(map()) :: t()
   def new(%{"meta" => m, "result" => r, "source_file" => file}) do
@@ -93,9 +103,14 @@ defmodule MimirAnalytics.Row.Run do
       stop_reason: stringify(r["stop_reason"]),
       error_class: r["error_class"],
       turns: r["turns"],
-      input_tokens: usage["input_tokens"] || 0,
-      output_tokens: usage["output_tokens"] || 0,
-      cost_microdollars: m["cost_microdollars"] || 0,
+      input_tokens: count(usage["input_tokens"]),
+      output_tokens: count(usage["output_tokens"]),
+      cache_read_input_tokens: count(usage["cache_read_input_tokens"]),
+      cache_creation_input_tokens: count(usage["cache_creation_input_tokens"]),
+      input_token_basis: basis(usage["input_token_basis"]),
+      usage_complete: coverage(usage["complete?"]),
+      in_flight: flight(r["in_flight"]),
+      cost_microdollars: count(m["cost_microdollars"]),
       started_at: m["started_at"],
       finished_at: m["finished_at"],
       source_file: file
@@ -110,6 +125,15 @@ defmodule MimirAnalytics.Row.Run do
   """
   @spec run_id(Mapper.source_map(), Mapper.source_map()) :: String.t() | nil
   def run_id(meta, result), do: result["session_id"] || meta["run_id"]
+
+  defp count(value) when is_integer(value) and value >= 0, do: value
+  defp count(_), do: nil
+  defp basis(value) when value in ["inclusive", "uncached", "none", "unknown"], do: value
+  defp basis(_), do: nil
+  defp coverage(value) when is_boolean(value), do: value
+  defp coverage(_), do: nil
+  defp flight(value) when value in ["none", "unknown"], do: value
+  defp flight(_), do: nil
 
   defp stringify(nil), do: nil
   defp stringify(v) when is_binary(v), do: v

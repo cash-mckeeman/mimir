@@ -14,6 +14,11 @@ defmodule MimirAnalytics.Schema do
   # `outcome` for a database created fresh from today's schema; this
   # statement is what brings an OLDER database's `runs` table up to date.
   @column_migrations [
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS cache_read_input_tokens BIGINT",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS cache_creation_input_tokens BIGINT",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS input_token_basis TEXT",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS usage_complete BOOLEAN",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS in_flight TEXT",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS outcome TEXT",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS error_class TEXT",
     "ALTER TABLE events_raw ADD COLUMN IF NOT EXISTS domain TEXT",
