@@ -74,6 +74,12 @@ defmodule MimirAnalytics.SchemaTest do
       )
       """)
 
+    {:ok, _} =
+      Duckdbex.query(
+        conn,
+        "INSERT INTO runs (run_id, source_file) VALUES ('retained', 'old.jsonl')"
+      )
+
     assert :ok = MimirAnalytics.Schema.apply(conn)
 
     {:ok, ref} =
@@ -85,6 +91,21 @@ defmodule MimirAnalytics.SchemaTest do
     cols = Duckdbex.fetch_all(ref) |> List.flatten() |> MapSet.new()
     assert MapSet.member?(cols, "outcome")
     assert MapSet.member?(cols, "error_class")
+
+    for column <-
+          ~w(cache_read_input_tokens cache_creation_input_tokens input_token_basis usage_complete in_flight) do
+      assert MapSet.member?(cols, column)
+    end
+
+    assert :ok = MimirAnalytics.Schema.apply(conn)
+
+    {:ok, ref} =
+      Duckdbex.query(conn, """
+      SELECT cache_read_input_tokens, cache_creation_input_tokens, input_token_basis,
+             usage_complete, in_flight, cost_microdollars FROM runs WHERE run_id = 'retained'
+      """)
+
+    assert Duckdbex.fetch_all(ref) == [[nil, nil, nil, nil, nil, nil]]
   end
 
   test "a legacy database (runs table predating outcome) ingests a session fixture after apply/1",

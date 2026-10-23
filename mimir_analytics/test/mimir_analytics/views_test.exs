@@ -25,6 +25,50 @@ defmodule MimirAnalytics.ViewsTest do
     assert [["local", 1, 0]] = rows
   end
 
+  test "parity totals stay unknown across missing attempts and missing cases", %{store: store} do
+    assert {:ok, _} = Session.ingest(store, Path.join(@fx, "session_execution_facts.jsonl"))
+
+    assert {:ok, _} =
+             Store.query(store, "UPDATE runs SET cost_microdollars = 7 WHERE step_id = 'partial'")
+
+    for grouping <- ["'same-case'", "step_id"] do
+      assert {:ok, _} = Store.query(store, "DELETE FROM eval_outcomes WHERE agent = 'fixture'")
+
+      assert {:ok, _} =
+               Store.query(store, """
+               INSERT INTO eval_outcomes (run_id, agent, suite, case_id, passed, source_file)
+               SELECT run_id, 'fixture', 'fixture', #{grouping}, true, 'fixture.json'
+               FROM runs WHERE workflow_id = 'consumer-contract' AND runtime = 'managed'
+               """)
+
+      assert {:ok, [[nil, nil]]} =
+               Store.query(store, """
+               SELECT total_cost_microdollars, microdollars_per_passing_case
+               FROM v_parity_cost WHERE runtime = 'managed'
+               """)
+
+      assert {:ok, _} =
+               Store.query(
+                 store,
+                 "UPDATE runs SET cost_microdollars = 9 WHERE step_id = 'unknown'"
+               )
+
+      expected_ratio = if grouping == "'same-case'", do: 16.0, else: 8.0
+
+      assert {:ok, [[16, ^expected_ratio]]} =
+               Store.query(store, """
+               SELECT total_cost_microdollars, microdollars_per_passing_case
+               FROM v_parity_cost WHERE runtime = 'managed'
+               """)
+
+      assert {:ok, _} =
+               Store.query(
+                 store,
+                 "UPDATE runs SET cost_microdollars = NULL WHERE step_id = 'unknown'"
+               )
+    end
+  end
+
   test "v_tool_signatures yields the miner's shape hash input", %{store: store} do
     {:ok, [[_run, sig, n]]} =
       Store.query(store, "SELECT run_id, signature, n_tools FROM v_tool_signatures")
