@@ -2,7 +2,7 @@ defmodule Mimir.MixProject do
   use Mix.Project
 
   @app :mimir
-  @version "0.7.0"
+  @version "0.8.0"
   @source_url "https://github.com/cash-mckeeman/mimir"
 
   def project do
