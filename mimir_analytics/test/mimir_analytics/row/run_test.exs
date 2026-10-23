@@ -87,7 +87,7 @@ defmodule MimirAnalytics.Row.RunTest do
     assert row.run_id == "sess_fallback"
   end
 
-  test "new/1 defaults missing usage/cost to 0 and stop_reason nil stays nil" do
+  test "new/1 preserves missing usage/cost as null and stop_reason nil stays nil" do
     row =
       Run.new(%{
         "meta" => %{"run_id" => "r1"},
@@ -95,10 +95,34 @@ defmodule MimirAnalytics.Row.RunTest do
         "source_file" => "f.jsonl"
       })
 
-    assert row.input_tokens == 0
-    assert row.output_tokens == 0
-    assert row.cost_microdollars == 0
+    assert row.input_tokens == nil
+    assert row.output_tokens == nil
+    assert row.cost_microdollars == nil
     assert row.stop_reason == nil
+  end
+
+  test "invalid optional provenance is dropped while measured zero and false survive" do
+    row =
+      Run.new(%{
+        "meta" => %{},
+        "result" => %{
+          "session_id" => "r",
+          "in_flight" => "invented",
+          "usage" => %{
+            "cache_read_input_tokens" => -1,
+            "cache_creation_input_tokens" => 0,
+            "input_token_basis" => "invented",
+            "complete?" => false
+          }
+        },
+        "source_file" => "f.jsonl"
+      })
+
+    assert row.cache_read_input_tokens == nil
+    assert row.cache_creation_input_tokens == 0
+    assert row.input_token_basis == nil
+    assert row.usage_complete == false
+    assert row.in_flight == nil
   end
 
   test "new/1 stringifies a non-binary stop_reason" do

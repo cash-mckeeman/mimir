@@ -17,21 +17,27 @@ WITH case_status AS (
          count(*)                                 AS attempts,
          -- sums of BIGINT are HUGEINT in DuckDB (a {hi, lo} tuple through the
          -- NIF), so cast back to BIGINT at every aggregation
-         CAST(sum(r.cost_microdollars) AS BIGINT) AS case_cost
+         CASE WHEN count(r.cost_microdollars) = count(*)
+              THEN CAST(sum(r.cost_microdollars) AS BIGINT)
+         END                                     AS case_cost
   FROM eval_outcomes e
   JOIN runs r ON r.run_id = e.run_id
   GROUP BY 1, 2, 3, 4
+), runtime_cost AS (
+  SELECT runtime,
+         count(*) FILTER (WHERE ever_passed) AS passing_cases,
+         CASE WHEN count(case_cost) FILTER (WHERE ever_passed)
+                        = count(*) FILTER (WHERE ever_passed)
+              THEN CAST(sum(case_cost) FILTER (WHERE ever_passed) AS BIGINT)
+         END AS total_cost_microdollars
+  FROM case_status
+  GROUP BY runtime
 )
-SELECT runtime,
-       count(*) FILTER (WHERE ever_passed)        AS passing_cases,
-       CAST(sum(case_cost) FILTER (WHERE ever_passed) AS BIGINT)
-                                                  AS total_cost_microdollars,
-       CASE WHEN count(*) FILTER (WHERE ever_passed) > 0
-            THEN CAST(sum(case_cost) FILTER (WHERE ever_passed) AS BIGINT)
-                 / count(*) FILTER (WHERE ever_passed)
-       END                                        AS microdollars_per_passing_case
-FROM case_status
-GROUP BY 1;
+SELECT runtime, passing_cases, total_cost_microdollars,
+       CASE WHEN passing_cases > 0
+            THEN total_cost_microdollars / passing_cases
+       END AS microdollars_per_passing_case
+FROM runtime_cost;
 
 CREATE OR REPLACE VIEW v_tool_signatures AS
 SELECT run_id,

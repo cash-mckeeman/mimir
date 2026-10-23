@@ -29,6 +29,30 @@ defmodule MimirAnalytics.Mappers.SessionTest do
     assert {turns, in_t, out_t} == {3, 8123, 1201}
   end
 
+  @execution_fixture Path.expand(
+                       "../../support/run_record_fixtures/session_execution_facts.jsonl",
+                       __DIR__
+                     )
+
+  test "producer records retain partial measurements, unknown facts and measured zero", %{
+    store: store
+  } do
+    assert {:ok, %{rows: %{"runs" => 3}}} = Session.ingest(store, @execution_fixture)
+
+    assert {:ok, rows} =
+             Store.query(store, """
+             SELECT step_id, outcome, input_tokens, output_tokens, cache_read_input_tokens,
+                    cache_creation_input_tokens, input_token_basis, usage_complete, in_flight, cost_microdollars
+             FROM runs WHERE workflow_id = 'consumer-contract' ORDER BY step_id
+             """)
+
+    assert rows == [
+             ["partial", "error", 12, 4, 3, 2, "inclusive", true, "unknown", nil],
+             ["unknown", "error", nil, nil, nil, nil, nil, nil, nil, nil],
+             ["zero", "ok", 0, 0, 0, 0, "inclusive", true, "none", nil]
+           ]
+  end
+
   @legacy_fixture Path.expand(
                     "../../support/run_record_fixtures/session_legacy_run_id_fallback.jsonl",
                     __DIR__
@@ -152,7 +176,12 @@ defmodule MimirAnalytics.Mappers.SessionTest do
              "turns" => 3,
              "input_tokens" => 1200,
              "output_tokens" => 340,
-             "cost_microdollars" => 0,
+             "cache_read_input_tokens" => nil,
+             "cache_creation_input_tokens" => nil,
+             "input_token_basis" => nil,
+             "usage_complete" => nil,
+             "in_flight" => nil,
+             "cost_microdollars" => nil,
              "started_at" => {{2026, 8, 13}, {12, 0, 0, 0}},
              "finished_at" => {{2026, 8, 13}, {12, 0, 2, 0}},
              "source_file" => "run_record.jsonl"
@@ -201,7 +230,12 @@ defmodule MimirAnalytics.Mappers.SessionTest do
              "turns" => 2,
              "input_tokens" => 500,
              "output_tokens" => 120,
-             "cost_microdollars" => 0,
+             "cache_read_input_tokens" => nil,
+             "cache_creation_input_tokens" => nil,
+             "input_token_basis" => nil,
+             "usage_complete" => nil,
+             "in_flight" => nil,
+             "cost_microdollars" => nil,
              "started_at" => {{2026, 8, 13}, {12, 10, 0, 0}},
              "finished_at" => {{2026, 8, 13}, {12, 10, 1, 0}},
              "source_file" => "run_record_rma_terminal.jsonl"
@@ -234,9 +268,14 @@ defmodule MimirAnalytics.Mappers.SessionTest do
              "stop_reason" => nil,
              "error_class" => "timeout",
              "turns" => nil,
-             "input_tokens" => 0,
-             "output_tokens" => 0,
-             "cost_microdollars" => 0,
+             "input_tokens" => nil,
+             "output_tokens" => nil,
+             "cache_read_input_tokens" => nil,
+             "cache_creation_input_tokens" => nil,
+             "input_token_basis" => nil,
+             "usage_complete" => nil,
+             "in_flight" => nil,
+             "cost_microdollars" => nil,
              "started_at" => {{2026, 8, 13}, {12, 20, 0, 0}},
              "finished_at" => {{2026, 8, 13}, {12, 20, 5, 0}},
              "source_file" => "run_record_error.jsonl"
