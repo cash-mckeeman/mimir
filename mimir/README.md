@@ -19,7 +19,7 @@ Add `mimir` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mimir, "~> 0.7.0"}
+    {:mimir, "~> 0.8.0"}
   ]
 end
 ```
