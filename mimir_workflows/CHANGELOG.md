@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+## 0.8.0
+
+Version aligned with the 0.8 library release.
+
 ## 0.7.0 (2026-10-07)
 
 First release on Hex.

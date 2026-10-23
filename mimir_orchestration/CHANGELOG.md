@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0
+
 ### Changed
 
 - Routed Orchestration steps carry `Mimir.Binding` through execution. Gateway
