@@ -148,7 +148,12 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingRecoveryTest do
   alias Mix.Tasks.MimirAnalytics.Ingest
 
   setup do
-    dir = "/private/tmp/accounting-recovery-#{System.pid()}-#{System.unique_integer([:positive])}"
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "accounting-recovery-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+
     File.mkdir!(dir)
     {:ok, store} = Store.open(Path.join(dir, "owned.duckdb"))
 
