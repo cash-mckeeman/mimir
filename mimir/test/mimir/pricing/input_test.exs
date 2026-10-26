@@ -50,7 +50,7 @@ defmodule Mimir.Pricing.InputTest do
     assert Input.priceable?(zero)
   end
 
-  test "retains measurements and validates only known inclusive cache partitions" do
+  test "retains measurements and validates inclusive cache partitions" do
     assert {:ok, input} = Input.new(attrs())
     assert Map.from_struct(input) == attrs()
     assert Input.priceable?(input)
@@ -64,14 +64,43 @@ defmodule Mimir.Pricing.InputTest do
     refute Input.priceable?(incomplete)
 
     for field <- [:cache_read_input_tokens, :cache_creation_input_tokens] do
-      assert {:ok, incomplete} = Input.new(Map.put(%{attrs() | input_tokens: 1}, field, nil))
+      assert {:ok, incomplete} = Input.new(Map.put(%{attrs() | input_tokens: 4}, field, nil))
+      assert Map.fetch!(incomplete, field) == nil
       refute Input.priceable?(incomplete)
     end
 
-    assert {:ok, uncached} = Input.new(%{attrs() | input_tokens: 4, input_token_basis: :uncached})
-    assert uncached.input_tokens == 4
+    assert {:ok, unknown_input} =
+             Input.new(%{attrs() | input_tokens: nil, cache_creation_input_tokens: nil})
+
+    assert unknown_input.input_tokens == nil
+    assert unknown_input.cache_read_input_tokens == 3
+    assert unknown_input.cache_creation_input_tokens == nil
+    refute Input.priceable?(unknown_input)
+
+    assert {:ok, uncached} = Input.new(%{attrs() | input_tokens: 1, input_token_basis: :uncached})
+    assert uncached.input_tokens == 1
     assert Input.priceable?(uncached)
     assert {:ok, _} = Input.new(%{attrs() | input_tokens: 5})
+  end
+
+  test "rejects known cache reads exceeding inclusive input when cache writes are unknown" do
+    assert {:error, {:invalid_pricing_input, :invalid_cache_partition}} =
+             Input.new(%{
+               attrs()
+               | input_tokens: 4,
+                 cache_read_input_tokens: 5,
+                 cache_creation_input_tokens: nil
+             })
+  end
+
+  test "rejects known cache writes exceeding inclusive input when cache reads are unknown" do
+    assert {:error, {:invalid_pricing_input, :invalid_cache_partition}} =
+             Input.new(%{
+               attrs()
+               | input_tokens: 4,
+                 cache_read_input_tokens: nil,
+                 cache_creation_input_tokens: 5
+             })
   end
 
   test "each missing count or blocked measurement prevents priceability" do
