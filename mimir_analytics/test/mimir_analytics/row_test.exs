@@ -10,11 +10,23 @@ defmodule MimirAnalytics.RowTest do
     %{conn: conn}
   end
 
-  test "Row.tables/0 covers every canonical table except the internally-managed ledgers" do
-    assert MapSet.new(Map.keys(MimirAnalytics.Row.tables())) ==
-             MimirAnalytics.Schema.tables()
-             |> Enum.reject(&(&1 in ["ingest_ledger", "ingest_rejections"]))
-             |> MapSet.new()
+  test "each canonical and actual main table has exactly one write owner", %{conn: conn} do
+    direct = MapSet.new(Map.keys(MimirAnalytics.Row.tables()))
+    store = MapSet.new(~w(ingest_ledger ingest_rejections))
+    accounting = MapSet.new(MimirAnalytics.AccountingStore.tables())
+    assert MapSet.disjoint?(direct, store)
+    assert MapSet.disjoint?(direct, accounting)
+    assert MapSet.disjoint?(store, accounting)
+    owned = direct |> MapSet.union(store) |> MapSet.union(accounting)
+    assert owned == MapSet.new(MimirAnalytics.Schema.tables())
+
+    {:ok, result} =
+      Duckdbex.query(conn, """
+      SELECT table_name FROM information_schema.tables
+      WHERE table_catalog = current_database() AND table_schema = 'main' AND table_type = 'BASE TABLE'
+      """)
+
+    assert owned == result |> Duckdbex.fetch_all() |> List.flatten() |> MapSet.new()
   end
 
   test "every Row struct's fields are exactly its table's real columns", %{conn: conn} do

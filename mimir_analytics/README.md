@@ -42,10 +42,31 @@ mix mimir_analytics.ingest \
   --evals    path/to/eval_runs
 ```
 
-The gateway buffers come from `MimirAnalytics.Ingest.GatewayPull` (an
-`updated_since`-cursor pull of the gateway's read-only Observability API);
-sessions come from `MimirAnalytics.Capture.write/3` call sites in consumers;
+Gateway buffers come from `MimirAnalytics.Ingest.GatewayPull`. Its default
+v1 API uses `updated_since`; accounting requires explicit `api_version: 2`,
+a stable caller-assigned `source_id`, and an open `MimirAnalytics.Store`.
+Sessions come from `MimirAnalytics.Capture.write/3` call sites in consumers;
 eval reports are the harness's own JSON artifacts.
+
+Accounting pulls own their opaque cursor in `gateway_checkpoints`; caller
+cursors are refused. Assign different source ids to different issuers, and
+reuse an issuer's id after restart. A page is validated and published as a
+content-addressed buffer before its events, reconstructed state, ledger and
+checkpoint commit together. A failure before commit leaves the previous
+checkpoint. A `commit_uncertain` error may follow a successful commit; reload
+durable state before recovery refetches. Only checkpoint conflicts and uncertain
+commits receive bounded retries. Buffers remain available for replay through
+`--gateway`; replay deduplicates events and never advances the pull checkpoint.
+Retain the published buffers separately if you need to rebuild the database.
+This reader accepts financial initial/correction snapshots and nonspend
+routing/lifecycle observations. Unsupported or malformed pages
+fail atomically before publication or checkpoint advancement.
+
+Accounting spend is exposed in `v_gateway_accounting_spend`, separately from
+legacy model-call and session costs. Missing booking versions leave the applied
+total null until history arrives. Measurement versions differ from booking
+versions; complete measurements can still have null usage or quotes. A settled
+zero and an unknown quote retain their distinct producer facts.
 
 Every mapper is idempotent by file contents via `ingest_ledger`, which keys
 each ingested file by the sha256 of its bytes, so re-running reads nothing
@@ -80,6 +101,18 @@ a producer that appends to a published file loses whatever it appends after
 that file is read.
 
 ## Upgrading a database
+
+Content-keyed databases gain accounting tables additively when opened.
+Existing financial event identities populate the shared event registry; an
+inconsistent retained identity refuses ingestion. Routing and lifecycle audit
+rows are available in `v_gateway_accounting_audits` and create no spend state.
+Existing legacy costs, including historical zeroes, stay unchanged and do not
+create accounting measurements. Rebuilding accounting state requires retained
+buffers or a complete producer history; replay alone does not restore a pull
+checkpoint. Resume a newly rebuilt reader from the producer's initial position
+under the same source identity to establish its checkpoint without double
+charging already-replayed events.
+
 
 A database created before the ingest ledger was keyed by content holds
 entries keyed by file name. Those cannot tell a file that grew after it was

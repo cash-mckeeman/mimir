@@ -1,7 +1,15 @@
 defmodule MimirAnalytics.ViewsTest do
   use ExUnit.Case, async: true
 
-  alias MimirAnalytics.{Mappers.EvalReport, Mappers.GatewayExport, Mappers.Session, Store}
+  alias MimirAnalytics.Accounting.{Page, Source}
+
+  alias MimirAnalytics.{
+    AccountingStore,
+    Mappers.EvalReport,
+    Mappers.GatewayExport,
+    Mappers.Session,
+    Store
+  }
 
   @fx Path.expand("../support/run_record_fixtures", __DIR__)
 
@@ -85,5 +93,39 @@ defmodule MimirAnalytics.ViewsTest do
   test "v_eval_trend and v_memory_evidence exist and are queryable", %{store: store} do
     {:ok, _} = Store.query(store, "SELECT * FROM v_eval_trend")
     {:ok, _} = Store.query(store, "SELECT * FROM v_memory_evidence")
+  end
+
+  test "accounting spend keeps missing history nullable beside legacy costs", %{store: store} do
+    {:ok, source} = Source.new(%{source_id: "views:test", api_version: 2})
+    wire = "test/support/accounting/producer.json" |> File.read!() |> Jason.decode!()
+    [_, _, correction, zero, unknown] = wire["rows"]
+    wire = Map.put(wire, "rows", [correction, zero, unknown])
+    {:ok, page} = Page.new(wire, source, nil)
+    {:ok, receipt} = page |> Page.to_buffer() |> Page.from_buffer("view.jsonl")
+    assert {:ok, _} = AccountingStore.ingest_page(store, receipt, :replay)
+    assert :ok = MimirAnalytics.Views.apply(store.conn)
+
+    assert {:ok, [[nil, 1, 0]]} =
+             Store.query(
+               store,
+               "SELECT booked_applied_total_microdollars,missing_history_runs,unknown_price_runs FROM v_gateway_accounting_spend WHERE virtual_key_id = ?",
+               [correction["virtual_key_id"]]
+             )
+
+    assert {:ok, [[0, 0, 0]]} =
+             Store.query(
+               store,
+               "SELECT booked_applied_total_microdollars,missing_history_runs,unknown_price_runs FROM v_gateway_accounting_spend WHERE virtual_key_id = ?",
+               [zero["virtual_key_id"]]
+             )
+
+    assert {:ok, [[0, 0, 1]]} =
+             Store.query(
+               store,
+               "SELECT booked_applied_total_microdollars,missing_history_runs,unknown_price_runs FROM v_gateway_accounting_spend WHERE virtual_key_id = ?",
+               [unknown["virtual_key_id"]]
+             )
+
+    assert {:ok, [[3]]} = Store.query(store, "SELECT count(*) FROM v_gateway_accounting_spend")
   end
 end

@@ -22,6 +22,35 @@ defmodule MimirAnalytics.SchemaTest do
     end
   end
 
+  test "accounting tables upgrade additively without manufacturing legacy measurement facts", %{
+    conn: conn
+  } do
+    assert :ok = MimirAnalytics.Schema.apply(conn)
+
+    {:ok, inserted} =
+      Duckdbex.query(
+        conn,
+        "INSERT INTO model_calls (mimir_request_id, source_file, cost_microdollars) VALUES ('retained', 'retained.jsonl', 0)"
+      )
+
+    assert Duckdbex.fetch_all(inserted) == [[1]]
+    assert :ok = MimirAnalytics.Schema.apply(conn)
+
+    for table <- ~w(accounting_events accounting_states gateway_checkpoints) do
+      assert table in MimirAnalytics.Schema.tables()
+      {:ok, result} = Duckdbex.query(conn, "SELECT count(*) FROM #{table}")
+      assert Duckdbex.fetch_all(result) == [[0]]
+    end
+
+    {:ok, result} =
+      Duckdbex.query(
+        conn,
+        "SELECT cost_microdollars FROM model_calls WHERE source_file = 'retained.jsonl'"
+      )
+
+    assert Duckdbex.fetch_all(result) == [[0]]
+  end
+
   test "correlation columns exist with canonical names", %{conn: conn} do
     :ok = MimirAnalytics.Schema.apply(conn)
 

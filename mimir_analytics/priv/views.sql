@@ -59,3 +59,26 @@ SELECT mp.entry_id, mp.event, mp."at", mp.evidence_ref,
        r.run_id, r.agent_name, r.terminal
 FROM memory_provenance mp
 LEFT JOIN runs r ON r.run_id = mp.run_id;
+
+
+CREATE OR REPLACE VIEW v_gateway_accounting_spend AS
+SELECT source_id, virtual_key_id, original_period AS budget_period_start,
+       CASE WHEN count(*) FILTER (WHERE booked_total_microdollars IS NULL) > 0
+            THEN NULL ELSE CAST(sum(booked_total_microdollars) AS BIGINT) END AS booked_applied_total_microdollars,
+       count(*) FILTER (WHERE booked_total_microdollars IS NULL) AS missing_history_runs,
+       count(*) FILTER (WHERE charge_state = 'provisional') AS provisional_runs,
+       count(*) FILTER (WHERE charge_state = 'unreconciled') AS unreconciled_runs,
+       count(*) FILTER (WHERE priceability IN ('unpriced', 'incomplete')) AS unknown_price_runs
+FROM accounting_states
+GROUP BY source_id, virtual_key_id, original_period;
+
+CREATE OR REPLACE VIEW v_gateway_accounting_audits AS
+SELECT source_id, event_id, virtual_key_id, kind, source_ref, run_id,
+       event_json->>'request_id' AS request_id,
+       event_json->>'recorded_at' AS recorded_at,
+       event_json->>'observed_at' AS observed_at,
+       event_json->>'workflow_id' AS workflow_id,
+       event_json->>'step_id' AS step_id,
+       event_json->>'parent_step_id' AS parent_step_id,
+       event_json->'facts' AS facts
+FROM accounting_audits;

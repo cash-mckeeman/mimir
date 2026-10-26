@@ -7,7 +7,7 @@ defmodule MimirAnalytics.Schema do
   `CREATE TABLE IF NOT EXISTS` alone does not change their columns.
   """
 
-  @tables ~w(workflow_runs steps runs turns tool_calls model_calls routing_decisions eval_outcomes events_raw memory_provenance ingest_ledger ingest_rejections)
+  @tables ~w(workflow_runs steps runs turns tool_calls model_calls routing_decisions eval_outcomes events_raw memory_provenance ingest_ledger ingest_rejections accounting_events accounting_states gateway_checkpoints accounting_audits accounting_event_ids)
 
   # One entry per column added to a table after that table's first release.
   # `priv/schema.sql`'s `CREATE TABLE IF NOT EXISTS runs (...)` already lists
@@ -39,8 +39,11 @@ defmodule MimirAnalytics.Schema do
   file that has since grown was fully read. Such a database is rebuilt, not
   migrated: delete it and re-ingest the source directories (README,
   "Upgrading a database").
+
+  Financial event identities are backfilled without changing history; a retained
+  registry mismatch returns `{:error, :accounting_identity_conflict}`.
   """
-  @spec apply(reference()) :: :ok | {:error, :name_keyed_ledger}
+  @spec apply(reference()) :: :ok | {:error, :name_keyed_ledger | :accounting_identity_conflict}
   def apply(conn) do
     # JSON columns need the json extension and now()/date_trunc() live in
     # core_functions. LOAD reads from the local extension directory
@@ -53,6 +56,7 @@ defmodule MimirAnalytics.Schema do
       {:error, :name_keyed_ledger}
     else
       create(conn)
+      backfill_accounting_ids(conn)
     end
   end
 
@@ -71,6 +75,31 @@ defmodule MimirAnalytics.Schema do
     Enum.each(@column_migrations, fn stmt ->
       {:ok, _} = Duckdbex.query(conn, stmt)
     end)
+  end
+
+  defp backfill_accounting_ids(conn) do
+    {:ok, _} = Duckdbex.query(conn, "BEGIN")
+
+    result =
+      with {:ok, ref} <-
+             Duckdbex.query(
+               conn,
+               "SELECT count(*) FROM accounting_events e JOIN accounting_event_ids i USING (source_id,event_id) WHERE i.fingerprint IS DISTINCT FROM e.fingerprint OR i.kind IS DISTINCT FROM (e.event_json->>'kind')"
+             ),
+           [[0]] <- Duckdbex.fetch_all(ref),
+           {:ok, _} <-
+             Duckdbex.query(
+               conn,
+               "INSERT INTO accounting_event_ids SELECT source_id,event_id,event_json->>'kind',fingerprint FROM accounting_events e WHERE NOT EXISTS (SELECT 1 FROM accounting_event_ids i WHERE i.source_id = e.source_id AND i.event_id = e.event_id)"
+             ),
+           {:ok, _} <- Duckdbex.query(conn, "COMMIT") do
+        :ok
+      else
+        _ -> {:error, :accounting_identity_conflict}
+      end
+
+    if result != :ok, do: Duckdbex.query(conn, "ROLLBACK")
+    result
   end
 
   defp name_keyed_ledger?(conn) do
