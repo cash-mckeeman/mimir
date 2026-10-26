@@ -178,3 +178,38 @@ CREATE TABLE IF NOT EXISTS ingest_ledger (
     ingested_at        TIMESTAMP NOT NULL,
     rows               INTEGER NOT NULL
 );
+
+
+CREATE TABLE IF NOT EXISTS accounting_events (
+    source_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    virtual_key_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    booking_version BIGINT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    event_json JSON NOT NULL,
+    PRIMARY KEY (source_id, event_id),
+    UNIQUE (source_id, virtual_key_id, run_id, booking_version)
+);
+
+CREATE TABLE IF NOT EXISTS accounting_states (
+    source_id TEXT NOT NULL,
+    virtual_key_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    original_period DATE NOT NULL,
+    latest_json JSON NOT NULL,
+    missing_ranges JSON NOT NULL,
+    booked_total_microdollars BIGINT,
+    priceability TEXT NOT NULL,
+    charge_state TEXT NOT NULL,
+    PRIMARY KEY (source_id, virtual_key_id, run_id)
+);
+
+CREATE TABLE IF NOT EXISTS gateway_checkpoints (
+    source_id TEXT NOT NULL,
+    api_version INTEGER NOT NULL,
+    endpoint TEXT NOT NULL,
+    cursor TEXT NOT NULL,
+    page_digest TEXT NOT NULL,
+    PRIMARY KEY (source_id, api_version)
+);

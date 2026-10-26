@@ -7,7 +7,7 @@ defmodule MimirAnalytics.Schema do
   `CREATE TABLE IF NOT EXISTS` alone does not change their columns.
   """
 
-  @tables ~w(workflow_runs steps runs turns tool_calls model_calls routing_decisions eval_outcomes events_raw memory_provenance ingest_ledger ingest_rejections)
+  @tables ~w(workflow_runs steps runs turns tool_calls model_calls routing_decisions eval_outcomes events_raw memory_provenance ingest_ledger ingest_rejections accounting_events accounting_states gateway_checkpoints)
 
   # One entry per column added to a table after that table's first release.
   # `priv/schema.sql`'s `CREATE TABLE IF NOT EXISTS runs (...)` already lists

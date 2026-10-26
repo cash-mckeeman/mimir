@@ -1,9 +1,11 @@
 defmodule MimirAnalytics.Mappers.GatewayExport do
   @moduledoc """
-  Gateway JSONL buffer files → `model_calls` + `routing_decisions` + `events_raw`.
-  Line kinds: "request_log", "routing_decision" — written by
-  `MimirAnalytics.Ingest.GatewayPull` from the gateway Observability API;
-  the fixture is the contract, wherever the bytes came from.
+  Gateway JSONL buffers contain legacy request/routing rows or one
+  `accounting_page` wrapper. Accounting pages commit atomically through
+  `MimirAnalytics.AccountingStore` and retain `:already_ingested` replay status.
+
+  Legacy "request_log" and "routing_decision" rows are written by
+  `MimirAnalytics.Ingest.GatewayPull` from the gateway Observability API.
 
   `request_log` lines carry `turn_events` as `%{"events" => [...]}` — the map
   the gateway's request-log writer persists, not a bare array. Each entry is
@@ -15,7 +17,8 @@ defmodule MimirAnalytics.Mappers.GatewayExport do
 
   @behaviour MimirAnalytics.Mapper
 
-  alias MimirAnalytics.{Mapper, Store}
+  alias MimirAnalytics.Accounting.Page
+  alias MimirAnalytics.{AccountingStore, Mapper, Store}
   alias MimirAnalytics.Row.{EventRaw, ModelCall, RoutingDecision}
 
   @impl true
@@ -26,11 +29,33 @@ defmodule MimirAnalytics.Mappers.GatewayExport do
     bytes = File.read!(path)
     digest = Store.digest(bytes)
 
-    if Store.ingested?(store, digest) do
-      :already_ingested
+    if accounting_buffer?(bytes) do
+      with {:ok, page} <- Page.from_buffer(bytes, file) do
+        AccountingStore.ingest_page(store, page, :replay)
+      end
     else
-      ingest_new(store, {digest, file}, bytes)
+      if Store.ingested?(store, digest) do
+        :already_ingested
+      else
+        ingest_new(store, {digest, file}, bytes)
+      end
     end
+  end
+
+  defp accounting_buffer?(bytes) do
+    bytes
+    |> String.split("\n", trim: true)
+    |> Enum.any?(fn line ->
+      case Jason.decode(line) do
+        {:ok, wire} when is_map(wire) -> accounting_wire?(wire)
+        _ -> String.contains?(line, "\"accounting_page\"")
+      end
+    end)
+  end
+
+  defp accounting_wire?(wire) do
+    wire["kind"] == "accounting_page" or
+      Enum.any?(["api_version", "schema_version", "buffer_version"], &Map.has_key?(wire, &1))
   end
 
   defp ingest_new(store, {_digest, file} = key, bytes) do
