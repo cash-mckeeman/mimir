@@ -1,6 +1,6 @@
 defmodule MimirAnalytics.Accounting.Page do
   @moduledoc "Whole validated accounting pages; buffer receipts identify actual input bytes."
-  alias MimirAnalytics.Accounting.{Error, Event, Source}
+  alias MimirAnalytics.Accounting.{Error, ExportEvent, Source}
   alias MimirAnalytics.{Mapper, Store}
   @enforce_keys [:source, :from_cursor, :next_cursor, :limit, :events]
   defstruct @enforce_keys ++ [:digest, :source_file]
@@ -10,7 +10,7 @@ defmodule MimirAnalytics.Accounting.Page do
           from_cursor: String.t() | nil,
           next_cursor: String.t(),
           limit: pos_integer(),
-          events: [Event.t()],
+          events: [ExportEvent.t()],
           digest: String.t() | nil,
           source_file: String.t() | nil
         }
@@ -54,7 +54,7 @@ defmodule MimirAnalytics.Accounting.Page do
 
   defp parse(rows, source) do
     Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, acc} ->
-      case Event.new(row, source) do
+      case ExportEvent.new(row, source) do
         {:ok, event} -> {:cont, {:ok, [event | acc]}}
         error -> {:halt, error}
       end
@@ -73,7 +73,7 @@ defmodule MimirAnalytics.Accounting.Page do
       source_id: p.source.source_id,
       from_cursor: p.from_cursor,
       api_version: 2,
-      rows: Enum.map(p.events, &Event.to_wire/1),
+      rows: Enum.map(p.events, &ExportEvent.to_wire/1),
       next_cursor: p.next_cursor,
       limit: p.limit
     }) <> "\n"

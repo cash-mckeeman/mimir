@@ -58,7 +58,8 @@ durable state before recovery refetches. Only checkpoint conflicts and uncertain
 commits receive bounded retries. Buffers remain available for replay through
 `--gateway`; replay deduplicates events and never advances the pull checkpoint.
 Retain the published buffers separately if you need to rebuild the database.
-This reader accepts initial and correction events; unsupported or mixed pages
+This reader accepts financial initial/correction snapshots and nonspend
+routing/lifecycle observations. Unsupported or malformed pages
 fail atomically before publication or checkpoint advancement.
 
 Accounting spend is exposed in `v_gateway_accounting_spend`, separately from
@@ -102,6 +103,9 @@ that file is read.
 ## Upgrading a database
 
 Content-keyed databases gain accounting tables additively when opened.
+Existing financial event identities populate the shared event registry; an
+inconsistent retained identity refuses ingestion. Routing and lifecycle audit
+rows are available in `v_gateway_accounting_audits` and create no spend state.
 Existing legacy costs, including historical zeroes, stay unchanged and do not
 create accounting measurements. Rebuilding accounting state requires retained
 buffers or a complete producer history; replay alone does not restore a pull

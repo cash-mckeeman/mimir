@@ -213,3 +213,25 @@ CREATE TABLE IF NOT EXISTS gateway_checkpoints (
     page_digest TEXT NOT NULL,
     PRIMARY KEY (source_id, api_version)
 );
+
+CREATE TABLE IF NOT EXISTS accounting_event_ids (
+    source_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('initial', 'correction', 'routing', 'lifecycle')),
+    fingerprint TEXT NOT NULL CHECK (length(fingerprint) > 0),
+    PRIMARY KEY (source_id, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS accounting_audits (
+    source_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    virtual_key_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('routing', 'lifecycle')),
+    source_ref TEXT NOT NULL,
+    run_id TEXT,
+    fingerprint TEXT NOT NULL CHECK (length(fingerprint) > 0),
+    event_json JSON NOT NULL,
+    PRIMARY KEY (source_id, event_id),
+    UNIQUE (source_id, virtual_key_id, kind, source_ref),
+    CHECK ((kind = 'routing' AND run_id IS NULL) OR (kind = 'lifecycle' AND run_id IS NOT NULL))
+);

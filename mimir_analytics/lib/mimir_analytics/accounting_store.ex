@@ -1,8 +1,23 @@
 defmodule MimirAnalytics.AccountingStore do
   @moduledoc "Atomic accounting history, ingest receipts and source checkpoint acknowledgement."
-  alias MimirAnalytics.Accounting.{Checkpoint, Error, Event, Fold, Page, Source, State}
+  alias MimirAnalytics.Accounting.{
+    AuditEvent,
+    Checkpoint,
+    Error,
+    Event,
+    ExportEvent,
+    Fold,
+    Page,
+    Source,
+    State
+  }
+
   alias MimirAnalytics.{Mapper, Store}
   alias MimirAnalytics.Store.DuckDB
+
+  @tables ~w(accounting_events accounting_states gateway_checkpoints accounting_audits accounting_event_ids)
+  @spec tables() :: [String.t()]
+  def tables, do: @tables
 
   @type options :: [db: {module(), pid() | nil}]
   @type mode :: :replay | {:advance, Checkpoint.t()}
@@ -188,24 +203,34 @@ defmodule MimirAnalytics.AccountingStore do
   end
 
   defp ingest_unledgered(_store, _adapter, _page, :replay, [_ | _]), do: :already_ingested
-  defp ingest_unledgered(_store, _adapter, _page, {:advance, _}, [_ | _]), do: summary(0, 0)
+
+  defp ingest_unledgered(_store, _adapter, page, {:advance, _}, [_ | _]),
+    do: summary(page, 0, 0, 0)
 
   defp ingest_unledgered(store, adapter, page, _mode, []) do
-    with {:ok, count, keys} <- insert_events(store, adapter, page.events),
+    with {:ok, financial, audits, keys} <- insert_events(store, adapter, page.events),
          {:ok, changed} <- fold_states(store, adapter, keys) do
       query!(
         store,
         adapter,
         "INSERT INTO ingest_ledger (digest, source_file, source, ingested_at, rows) VALUES (?, ?, ?, now(), ?)",
-        [page.digest, page.source_file, "gateway_accounting", count]
+        [page.digest, page.source_file, "gateway_accounting", financial + audits]
       )
 
-      summary(count, changed)
+      summary(page, financial, audits, changed)
     end
   end
 
-  defp summary(events, states),
-    do: {:ok, %{rows: %{"accounting_events" => events, "accounting_states" => states}}}
+  defp summary(page, events, audits, states) do
+    rows = %{"accounting_events" => events, "accounting_states" => states}
+
+    rows =
+      if Enum.any?(page.events, &is_struct(&1, AuditEvent)),
+        do: Map.put(rows, "accounting_audits", audits),
+        else: rows
+
+    {:ok, %{rows: rows}}
+  end
 
   defp advance(_, _, _, :replay), do: :ok
 
@@ -227,15 +252,19 @@ defmodule MimirAnalytics.AccountingStore do
   end
 
   defp insert_events(store, adapter, events) do
-    Enum.reduce_while(events, {:ok, 0, MapSet.new()}, fn event, {:ok, count, keys} ->
+    Enum.reduce_while(events, {:ok, 0, 0, MapSet.new()}, fn event,
+                                                            {:ok, financial, audits, keys} ->
       case insert_event(store, adapter, event) do
         :existing ->
-          {:cont, {:ok, count, keys}}
+          {:cont, {:ok, financial, audits, keys}}
+
+        :inserted when is_struct(event, Event) ->
+          {:cont,
+           {:ok, financial + 1, audits,
+            MapSet.put(keys, {event.source_id, event.virtual_key_id, event.run_id})}}
 
         :inserted ->
-          {:cont,
-           {:ok, count + 1,
-            MapSet.put(keys, {event.source_id, event.virtual_key_id, event.run_id})}}
+          {:cont, {:ok, financial, audits + 1, keys}}
 
         error ->
           {:halt, error}
@@ -244,20 +273,92 @@ defmodule MimirAnalytics.AccountingStore do
   end
 
   defp insert_event(store, adapter, event) do
-    fingerprint = Event.fingerprint(event)
+    fingerprint = ExportEvent.fingerprint(event)
+    kind = Atom.to_string(event.kind)
 
     existing =
       query!(
         store,
         adapter,
-        "SELECT fingerprint FROM accounting_events WHERE source_id = ? AND event_id = ?",
+        "SELECT kind,fingerprint FROM accounting_event_ids WHERE source_id = ? AND event_id = ?",
         [event.source_id, event.event_id]
       )
 
     case existing do
-      [[^fingerprint]] -> :existing
-      [[_]] -> Error.result(:event_conflict)
-      [] -> insert_version(store, adapter, event, fingerprint)
+      [[^kind, ^fingerprint]] ->
+        verify_payload(store, adapter, event, fingerprint)
+
+      [[_, _]] ->
+        Error.result(:event_conflict)
+
+      [] ->
+        query!(
+          store,
+          adapter,
+          "INSERT INTO accounting_event_ids (source_id,event_id,kind,fingerprint) VALUES (?, ?, ?, ?) RETURNING event_id",
+          [event.source_id, event.event_id, kind, fingerprint]
+        )
+
+        insert_payload(store, adapter, event, fingerprint)
+    end
+  end
+
+  defp verify_payload(store, adapter, event, fingerprint) do
+    table = if is_struct(event, Event), do: "accounting_events", else: "accounting_audits"
+
+    case query!(
+           store,
+           adapter,
+           "SELECT fingerprint,event_json FROM #{table} WHERE source_id = ? AND event_id = ?",
+           [event.source_id, event.event_id]
+         ) do
+      [[^fingerprint, json]] ->
+        with {:ok, source} <- Source.new(%{source_id: event.source_id, api_version: 2}),
+             {:ok, wire} <- Jason.decode(json),
+             {:ok, ^event} <- ExportEvent.new(wire, source) do
+          :existing
+        else
+          _ -> Error.result(:event_conflict)
+        end
+
+      _ ->
+        Error.result(:event_conflict)
+    end
+  end
+
+  defp insert_payload(store, adapter, %Event{} = event, fingerprint),
+    do: insert_version(store, adapter, event, fingerprint)
+
+  defp insert_payload(store, adapter, %AuditEvent{} = event, fingerprint) do
+    ref = AuditEvent.source_ref(event)
+
+    case query!(
+           store,
+           adapter,
+           "SELECT event_id FROM accounting_audits WHERE source_id = ? AND virtual_key_id = ? AND kind = ? AND source_ref = ?",
+           [event.source_id, event.virtual_key_id, Atom.to_string(event.kind), ref]
+         ) do
+      [[_]] ->
+        Error.result(:event_conflict)
+
+      [] ->
+        query!(
+          store,
+          adapter,
+          "INSERT INTO accounting_audits (source_id,event_id,virtual_key_id,kind,source_ref,run_id,fingerprint,event_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            event.source_id,
+            event.event_id,
+            event.virtual_key_id,
+            Atom.to_string(event.kind),
+            ref,
+            event.run_id,
+            fingerprint,
+            Jason.encode!(AuditEvent.to_wire(event))
+          ]
+        )
+
+        :inserted
     end
   end
 
