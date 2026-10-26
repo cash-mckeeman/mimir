@@ -1,3 +1,47 @@
+defmodule MimirAnalytics.AccountingPublicationTestFS do
+  @moduledoc false
+  @behaviour MimirAnalytics.Ingest.GatewayAccountingBuffer.FileSystem
+  alias MimirAnalytics.Ingest.GatewayAccountingBuffer.FileSystem
+
+  @impl true
+  @spec read(Path.t(), pid()) :: {:ok, binary()} | {:error, File.posix()}
+  def read(path, context) do
+    result = File.read(path)
+
+    if result == {:error, :enoent} do
+      {owner, pause?} =
+        Agent.get_and_update(context, fn state ->
+          {{state.owner, not state.paused?}, %{state | paused?: true}}
+        end)
+
+      if pause? do
+        send(owner, {:destination_absent, self(), path})
+
+        receive do
+          :publish -> :ok
+        after
+          5_000 -> raise "publication barrier timed out"
+        end
+      end
+    end
+
+    result
+  end
+
+  @impl true
+  @spec write(Path.t(), binary(), [:binary | :exclusive | :sync], pid()) :: FileSystem.result()
+  def write(path, bytes, modes, _context), do: File.write(path, bytes, modes)
+  @impl true
+  @spec mkdir_p(Path.t(), pid()) :: FileSystem.result()
+  def mkdir_p(path, _context), do: File.mkdir_p(path)
+  @impl true
+  @spec ln(Path.t(), Path.t(), pid()) :: FileSystem.result()
+  def ln(from, to, _context), do: File.ln(from, to)
+  @impl true
+  @spec rm(Path.t(), pid()) :: FileSystem.result()
+  def rm(path, _context), do: File.rm(path)
+end
+
 defmodule MimirAnalytics.GatewayRecoveryDB do
   @moduledoc false
   @behaviour MimirAnalytics.Store.DB
@@ -79,6 +123,7 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingRecoveryTest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureIO
   alias MimirAnalytics.Accounting.{Page, Source}
+  alias MimirAnalytics.AccountingPublicationTestFS
   alias MimirAnalytics.{AccountingStore, Store}
   alias MimirAnalytics.Ingest.{GatewayAccountingBuffer, GatewayPull}
   alias MimirAnalytics.Mappers.GatewayExport
@@ -188,6 +233,59 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingRecoveryTest do
     assert {:error, %{code: :buffer_error}} = GatewayAccountingBuffer.publish(p, dir)
     assert File.read!(path) == "collision-secret"
     assert Path.wildcard(Path.join(dir, ".*.tmp"), match_dot: true) == []
+  end
+
+  test "a mismatched destination created after absence is never replaced", %{
+    store: store,
+    dir: dir
+  } do
+    owner = self()
+    {:ok, context} = Agent.start_link(fn -> %{owner: owner, paused?: false} end)
+    p = page(rows(), nil, "next")
+
+    task =
+      Task.async(fn ->
+        GatewayAccountingBuffer.publish(p, dir,
+          file_system: {AccountingPublicationTestFS, context}
+        )
+      end)
+
+    assert_receive {:destination_absent, worker, destination}, 2_000
+    refute File.exists?(destination)
+    File.write!(destination, "concurrent-owner-bytes")
+    send(worker, :publish)
+    assert {:error, %{code: :buffer_error}} = Task.await(task)
+    assert File.read!(destination) == "concurrent-owner-bytes"
+    assert_empty(store)
+    assert Path.wildcard(Path.join(dir, ".*.tmp"), match_dot: true) == []
+    Agent.stop(context)
+  end
+
+  test "matching concurrent publication after absence reuses the complete destination", %{
+    store: store,
+    dir: dir
+  } do
+    owner = self()
+    {:ok, context} = Agent.start_link(fn -> %{owner: owner, paused?: false} end)
+    p = page(rows(), nil, "next")
+
+    task =
+      Task.async(fn ->
+        GatewayAccountingBuffer.publish(p, dir,
+          file_system: {AccountingPublicationTestFS, context}
+        )
+      end)
+
+    assert_receive {:destination_absent, worker, destination}, 2_000
+    assert {:ok, receipt, ^destination} = GatewayAccountingBuffer.publish(p, dir)
+    committed_bytes = File.read!(destination)
+    send(worker, :publish)
+    assert {:ok, ^receipt, ^destination} = Task.await(task)
+    assert File.read!(destination) == committed_bytes
+    assert Path.wildcard(Path.join(dir, "*.jsonl")) == [destination]
+    assert Path.wildcard(Path.join(dir, ".*.tmp"), match_dot: true) == []
+    assert_empty(store)
+    Agent.stop(context)
   end
 
   test "unwritable directory rejects publication before acknowledgement", %{
