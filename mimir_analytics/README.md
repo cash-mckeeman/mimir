@@ -52,8 +52,9 @@ Accounting pulls own their opaque cursor in `gateway_checkpoints`; caller
 cursors are refused. Assign different source ids to different issuers, and
 reuse an issuer's id after restart. A page is validated and published as a
 content-addressed buffer before its events, reconstructed state, ledger and
-checkpoint commit together. A failed page leaves the previous checkpoint;
-recovery refetches from durable state. Only checkpoint conflicts and uncertain
+checkpoint commit together. A failure before commit leaves the previous
+checkpoint. A `commit_uncertain` error may follow a successful commit; reload
+durable state before recovery refetches. Only checkpoint conflicts and uncertain
 commits receive bounded retries. Buffers remain available for replay through
 `--gateway`; replay deduplicates events and never advances the pull checkpoint.
 Retain the published buffers separately if you need to rebuild the database.
