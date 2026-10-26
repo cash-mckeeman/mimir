@@ -25,6 +25,10 @@ defmodule MimirAnalytics.Accounting.Error do
           | :virtual_key_id
           | :run_id
           | :request_id
+          | :workflow_id
+          | :step_id
+          | :parent_step_id
+          | :facts
           | :measurement_owner
           | :booking_version
           | :measurement_version
@@ -86,6 +90,10 @@ defmodule MimirAnalytics.Accounting.Error do
     "virtual_key_id",
     "run_id",
     "request_id",
+    "workflow_id",
+    "step_id",
+    "parent_step_id",
+    "facts",
     "measurement_owner",
     "booking_version",
     "measurement_version",

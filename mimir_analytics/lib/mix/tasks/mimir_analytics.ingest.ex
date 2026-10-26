@@ -60,6 +60,11 @@ defmodule Mix.Tasks.MimirAnalytics.Ingest do
       {:ok, store} ->
         store
 
+      {:error, :accounting_identity_conflict} ->
+        Mix.raise(
+          "mimir_analytics.ingest: accounting identity conflict; database was not ingested"
+        )
+
       {:error, :name_keyed_ledger} ->
         Mix.raise(
           "mimir_analytics.ingest: #{db} keeps an ingest ledger keyed by file name, " <>

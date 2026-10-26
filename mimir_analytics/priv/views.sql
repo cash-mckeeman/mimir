@@ -71,3 +71,14 @@ SELECT source_id, virtual_key_id, original_period AS budget_period_start,
        count(*) FILTER (WHERE priceability IN ('unpriced', 'incomplete')) AS unknown_price_runs
 FROM accounting_states
 GROUP BY source_id, virtual_key_id, original_period;
+
+CREATE OR REPLACE VIEW v_gateway_accounting_audits AS
+SELECT source_id, event_id, virtual_key_id, kind, source_ref, run_id,
+       event_json->>'request_id' AS request_id,
+       event_json->>'recorded_at' AS recorded_at,
+       event_json->>'observed_at' AS observed_at,
+       event_json->>'workflow_id' AS workflow_id,
+       event_json->>'step_id' AS step_id,
+       event_json->>'parent_step_id' AS parent_step_id,
+       event_json->'facts' AS facts
+FROM accounting_audits;

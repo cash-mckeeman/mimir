@@ -13,7 +13,7 @@ defmodule MimirAnalytics.RowTest do
   test "each canonical and actual main table has exactly one write owner", %{conn: conn} do
     direct = MapSet.new(Map.keys(MimirAnalytics.Row.tables()))
     store = MapSet.new(~w(ingest_ledger ingest_rejections))
-    accounting = MapSet.new(~w(accounting_events accounting_states gateway_checkpoints))
+    accounting = MapSet.new(MimirAnalytics.AccountingStore.tables())
     assert MapSet.disjoint?(direct, store)
     assert MapSet.disjoint?(direct, accounting)
     assert MapSet.disjoint?(store, accounting)

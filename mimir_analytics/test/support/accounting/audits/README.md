@@ -1,0 +1,1 @@
+Raw accounting API response bodies from producer revision `58db17a7e3407ea0c7b7fa68e4546007b37b48d2`. Captured through the Phoenix Endpoint after real local PostgreSQL domain commands. Routing uses local decision constructors; lifecycle commands are synthetic and do not establish hosted caller adoption. Tests serve these bytes without reserializing them.
