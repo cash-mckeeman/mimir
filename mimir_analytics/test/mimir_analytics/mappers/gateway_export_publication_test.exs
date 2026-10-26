@@ -8,7 +8,10 @@ defmodule MimirAnalytics.Mappers.GatewayExportPublicationTest do
 
   setup do
     dir =
-      "/private/tmp/reader-published-buffer-#{System.pid()}-#{System.unique_integer([:positive])}"
+      Path.join(
+        System.tmp_dir!(),
+        "reader-published-buffer-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)

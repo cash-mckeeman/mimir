@@ -174,7 +174,10 @@ defmodule MimirAnalytics.AccountingStoreTest do
 
   test "native file reopen retains canonical fingerprints and whole-page conflict rollback" do
     directory =
-      "/private/tmp/analytics-accounting-#{System.pid()}-#{System.unique_integer([:positive])}"
+      Path.join(
+        System.tmp_dir!(),
+        "analytics-accounting-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir!(directory)
     path = Path.join(directory, "history.duckdb")
