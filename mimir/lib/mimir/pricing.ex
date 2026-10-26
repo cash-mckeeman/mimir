@@ -4,8 +4,8 @@ defmodule Mimir.Pricing.InvalidConfigError do
   `:mimir, :pricing` config table's, or a `Mimir.Snapshot`'s own — rather
   than any other `ArgumentError` a bug or a hostile environment might
   raise from the same call. `Mimir.Guard` rescues only this exception and
-  halts instead of raising mid-run; calling `Mimir.Pricing` or
-  `Mimir.Oracle` directly still raises it.
+  halts instead of raising mid-run. The legacy cost API and `Mimir.Oracle`
+  raise it; `Mimir.Pricing.quote/2` returns a tagged configuration error.
   """
   defexception [:message]
 end
@@ -13,6 +13,9 @@ end
 defmodule Mimir.Pricing do
   @moduledoc """
   Token usage -> integer microdollar cost.
+
+  `quote/2` distinguishes incomplete measurements and unavailable rates from
+  priced zero. The legacy `cost_microdollars/2` resolves rates as follows.
 
   Rates are integer µ$ per million tokens: `input:`, `output:`, and optional
   `cache_read:` and `cache_write:`. Each rate resolves on its own for a
@@ -36,7 +39,7 @@ defmodule Mimir.Pricing do
   `Mimir.Pricing.InvalidConfigError` naming the model and the offending key/value,
   whenever that model's rate is resolved — nothing is memoized, so every call
   re-validates. `Mimir.Guard` rescues this specific exception and halts instead of
-  raising mid-run; calling this module directly does not.
+  raising mid-run. The legacy cost API raises; `quote/2` returns a tagged error.
 
   Cache tokens (`:cache_read_input_tokens`, `:cache_creation_input_tokens`) price at the
   cache rates. With no cache rate from either source they price at the input rate rather
@@ -54,15 +57,102 @@ defmodule Mimir.Pricing do
 
   require Logger
 
+  alias Mimir.Pricing.{Input, InvalidConfigError, Quote}
+
   @rate_fields [:input, :output, :cache_read, :cache_write]
 
-  @typedoc "Integer µ$ per million tokens: a config-table entry, or a vendored DB entry."
+  @typedoc "Integer µ$ per million tokens at the pricing configuration boundary; absent rates stay absent."
   @type rates :: %{
-          required(:input) => non_neg_integer(),
-          required(:output) => non_neg_integer(),
+          optional(:input) => non_neg_integer(),
+          optional(:output) => non_neg_integer(),
           optional(:cache_read) => non_neg_integer(),
           optional(:cache_write) => non_neg_integer()
         }
+
+  @type quote_error ::
+          {:invalid_pricing_model, :invalid_value}
+          | {:invalid_pricing_input, Input.reason() | :not_an_input}
+          | {:invalid_pricing_config, String.t()}
+
+  @doc """
+  Quotes validated measurements, preserving their counts and input basis.
+  Incomplete measurements have nil cost; eligible measurements require both
+  base rates and rates for positive cache counts. Configured zero rates are
+  available. Invalid models, inputs and configuration return tagged errors;
+  configuration validation precedes measurement eligibility.
+  """
+  @spec quote(String.t(), Input.t()) :: {:ok, Quote.t()} | {:error, quote_error()}
+  def quote(model, input) when is_binary(model) and byte_size(model) > 0 do
+    with {:ok, input} <- validate_quote_input(input),
+         {:ok, rates} <- quote_rates(model) do
+      {status, cost} = quote_result(input, rates)
+
+      {:ok, quote} =
+        Quote.new(%{model: model, input: input, status: status, cost_microdollars: cost})
+
+      {:ok, quote}
+    end
+  end
+
+  def quote(_model, _input), do: {:error, {:invalid_pricing_model, :invalid_value}}
+
+  defp validate_quote_input(%Input{} = input), do: Input.new(input)
+  defp validate_quote_input(_input), do: {:error, {:invalid_pricing_input, :not_an_input}}
+
+  defp quote_rates(model) do
+    table = Application.get_env(:mimir, :pricing, %{})
+
+    unless is_map(table) and not is_struct(table) do
+      raise InvalidConfigError,
+        message: "Mimir.Pricing: invalid pricing table #{inspect(table)} (expected a map)"
+    end
+
+    entry = configured_entry(model, table)
+
+    unless is_map(entry) and not is_struct(entry) do
+      raise InvalidConfigError,
+        message:
+          "Mimir.Pricing: model #{inspect(model)} has an invalid pricing entry " <>
+            "#{inspect(entry)} (expected a map)"
+    end
+
+    {:ok, available_rates(model, entry)}
+  rescue
+    error in InvalidConfigError -> {:error, {:invalid_pricing_config, error.message}}
+  end
+
+  defp quote_result(input, rates) do
+    cond do
+      not Input.priceable?(input) -> {:incomplete, nil}
+      not required_rates?(input, rates) -> {:unpriced, nil}
+      true -> {:priced, quote_cost(input, rates)}
+    end
+  end
+
+  defp required_rates?(input, rates) do
+    Map.has_key?(rates, :input) and Map.has_key?(rates, :output) and
+      (input.cache_read_input_tokens == 0 or Map.has_key?(rates, :cache_read)) and
+      (input.cache_creation_input_tokens == 0 or Map.has_key?(rates, :cache_write))
+  end
+
+  defp quote_cost(input, rates) do
+    uncached_input =
+      case input.input_token_basis do
+        :inclusive ->
+          input.input_tokens - input.cache_read_input_tokens - input.cache_creation_input_tokens
+
+        :uncached ->
+          input.input_tokens
+      end
+
+    per_million(uncached_input, rates.input) +
+      per_million(input.output_tokens, rates.output) +
+      cache_charge(input.cache_read_input_tokens, rates, :cache_read) +
+      cache_charge(input.cache_creation_input_tokens, rates, :cache_write)
+  end
+
+  defp cache_charge(0, _rates, _field), do: 0
+  defp cache_charge(tokens, rates, field), do: per_million(tokens, Map.fetch!(rates, field))
 
   @typedoc """
   Token counts, atom-keyed; a missing key counts as zero. The two cache keys
@@ -128,21 +218,21 @@ defmodule Mimir.Pricing do
   @doc false
   @spec resolve_rates(String.t(), map()) :: rates()
   def resolve_rates(model, entry) when is_binary(model) do
-    %{input: 0, output: 0}
-    |> Map.merge(vendored_price(model) || %{})
+    Map.merge(%{input: 0, output: 0}, available_rates(model, entry))
+  end
+
+  defp available_rates(model, entry) do
+    (vendored_price(model) || %{})
     |> Map.merge(configured_rates(model, entry))
   end
 
   # Per field: config entry, then vendored DB; cache rates may stay absent.
   @spec configured_price(String.t()) :: rates()
   defp configured_price(model) do
-    entry =
-      :mimir
-      |> Application.get_env(:pricing, %{})
-      |> Map.get(model, %{})
-
-    resolve_rates(model, entry)
+    resolve_rates(model, configured_entry(model, Application.get_env(:mimir, :pricing, %{})))
   end
+
+  defp configured_entry(model, table), do: Map.get(table, model, %{})
 
   # A misconfigured entry is loud, not silently dropped: an unknown key or an
   # invalid rate value raises Mimir.Pricing.InvalidConfigError naming the
