@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- `Mimir.Pricing.quote/2` with validated `Input` and `Quote` structs distinguishes
+  priced zero, incomplete measurements and unavailable rates. Existing
+  `cost_microdollars/2`, Oracle and Guard behavior is preserved.
+
 ## 0.8.0
 
 ### Removed
