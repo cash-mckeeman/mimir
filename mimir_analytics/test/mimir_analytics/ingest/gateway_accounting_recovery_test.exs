@@ -524,7 +524,7 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingRecoveryTest do
              Store.query(store, "SELECT count(*) FROM gateway_checkpoints WHERE cursor = 'stale'")
   end
 
-  test "failed nested begin preserves leased sentinel until explicit test cleanup", %{
+  test "failed nested begin natively aborts its lease without an accounting rollback", %{
     store: store,
     dir: dir
   } do
