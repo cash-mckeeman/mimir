@@ -1,7 +1,18 @@
+Code.require_file("test/support/accounting_interop_helper.exs")
+
 defmodule Mix.Tasks.MimirAnalytics.IngestTest do
   use ExUnit.Case, async: false
 
+  import MimirAnalytics.AccountingInteropHelper
+
+  alias MimirAnalytics.Store
   alias Mix.Tasks.MimirAnalytics.Ingest
+
+  setup do
+    Mix.shell(Mix.Shell.Process)
+    on_exit(fn -> Mix.shell(Mix.Shell.IO) end)
+    :ok
+  end
 
   @fx Path.expand("../../support/run_record_fixtures", __DIR__)
 
@@ -408,6 +419,9 @@ defmodule Mix.Tasks.MimirAnalytics.IngestTest do
 
     Ingest.run(["--db", db, "--sessions", sessions])
 
+    assert_received {:mix_shell, :error, [message]}
+    assert message =~ "crash.jsonl"
+    assert message =~ "insert_failed"
     assert File.exists?(Path.join(sessions, "crash.jsonl"))
     refute File.exists?(Path.join([sessions, ".ingested", "crash.jsonl"]))
   end
@@ -427,6 +441,37 @@ defmodule Mix.Tasks.MimirAnalytics.IngestTest do
     assert_received {:mix_shell, :error, [message]}
     assert message =~ crash
     assert message =~ "insert_failed"
+  end
+
+  @tag :tmp_dir
+  test "the actual gateway CLI replays accounting buffers once and preserves legacy and null facts",
+       %{tmp_dir: dir} do
+    gateway = Path.join(dir, "gateway")
+    File.mkdir_p!(gateway)
+    File.cp!(Path.join(@fx, "gateway_export.jsonl"), Path.join(gateway, "legacy.jsonl"))
+    wrapper(gateway, wire("producer")["rows"], "accounting")
+    File.write!(Path.join(gateway, ".unpublished.jsonl.tmp"), "unfinished")
+    db = Path.join(dir, "cli.duckdb")
+    argv = ["--db", db, "--gateway", gateway]
+
+    Ingest.run(argv)
+    assert_received {:mix_shell, :info, [first]}
+    assert first =~ "gateway: 2"
+    Ingest.run(argv)
+    assert_received {:mix_shell, :info, [second]}
+    assert second =~ "gateway: 0"
+    refute_received {:mix_shell, :error, _}
+    assert File.exists?(Path.join(gateway, "accounting.jsonl"))
+    assert File.exists?(Path.join(gateway, "legacy.jsonl"))
+    assert File.read!(Path.join(gateway, ".unpublished.jsonl.tmp")) == "unfinished"
+    refute File.exists?(Path.join(gateway, ".ingested"))
+
+    {:ok, store} = Store.open(db)
+    assert_main_facts(store)
+    assert {:ok, [[2]]} = Store.query(store, "SELECT count(*) FROM ingest_ledger")
+    assert {:ok, [[1]]} = Store.query(store, "SELECT count(*) FROM model_calls")
+    assert {:ok, [[0]]} = Store.query(store, "SELECT count(*) FROM gateway_checkpoints")
+    :ok = Store.close(store)
   end
 
   # One DuckDB instance per database file at a time: each run's handle is
