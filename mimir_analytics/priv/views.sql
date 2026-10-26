@@ -59,3 +59,15 @@ SELECT mp.entry_id, mp.event, mp."at", mp.evidence_ref,
        r.run_id, r.agent_name, r.terminal
 FROM memory_provenance mp
 LEFT JOIN runs r ON r.run_id = mp.run_id;
+
+
+CREATE OR REPLACE VIEW v_gateway_accounting_spend AS
+SELECT source_id, virtual_key_id, original_period AS budget_period_start,
+       CASE WHEN count(*) FILTER (WHERE booked_total_microdollars IS NULL) > 0
+            THEN NULL ELSE CAST(sum(booked_total_microdollars) AS BIGINT) END AS booked_applied_total_microdollars,
+       count(*) FILTER (WHERE booked_total_microdollars IS NULL) AS missing_history_runs,
+       count(*) FILTER (WHERE charge_state = 'provisional') AS provisional_runs,
+       count(*) FILTER (WHERE charge_state = 'unreconciled') AS unreconciled_runs,
+       count(*) FILTER (WHERE priceability IN ('unpriced', 'incomplete')) AS unknown_price_runs
+FROM accounting_states
+GROUP BY source_id, virtual_key_id, original_period;
