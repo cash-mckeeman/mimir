@@ -180,7 +180,10 @@ defmodule MimirAnalytics.Mappers.GatewayExportTest do
     {:ok, store} = Store.open(:memory)
 
     path =
-      "/private/tmp/analytics-accounting-mapper-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl"
+      Path.join(
+        System.tmp_dir!(),
+        "analytics-accounting-mapper-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl"
+      )
 
     try do
       {:ok, source} =
