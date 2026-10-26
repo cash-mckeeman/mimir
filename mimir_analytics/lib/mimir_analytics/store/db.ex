@@ -1,5 +1,8 @@
 defmodule MimirAnalytics.Store.DB do
-  @moduledoc "Leased connection commands for accounting transactions. SQL rows and parameters are boundary values."
+  @moduledoc """
+  Accounting commands on exclusive connections preserving the caller's current
+  catalog/schema. SQL rows and parameters are boundary values.
+  """
   alias MimirAnalytics.Store
   @type context :: pid() | nil
   @type command :: :begin | :commit | :rollback | {:query, String.t(), list()}

@@ -6,13 +6,64 @@ defmodule MimirAnalytics.Store.DuckDB do
   @impl true
   @spec lease(Store.t(), DB.context()) :: {:ok, Store.t()} | {:error, :unavailable}
   def lease(%Store{db: db} = store, _context) do
-    case Duckdbex.connection(db) do
-      {:ok, conn} -> {:ok, %{store | conn: conn}}
-      {:error, _} -> {:error, :unavailable}
+    with {:ok, namespace} <- namespace(store),
+         {:ok, conn} <- connection(db) do
+      initialize_lease(%{store | conn: conn}, namespace)
+    else
+      _ -> {:error, :unavailable}
     end
+  end
+
+  defp connection(db) do
+    Duckdbex.connection(db)
   rescue
     _ -> {:error, :unavailable}
   end
+
+  defp namespace(store) do
+    case execute(store, "SELECT current_database(), current_schema()", []) do
+      {:ok, [[catalog, schema]]} -> validate_namespace(catalog, schema)
+      _ -> {:error, :unavailable}
+    end
+  end
+
+  defp validate_namespace(catalog, schema) do
+    if identifier?(catalog) and identifier?(schema),
+      do: {:ok, {catalog, schema}},
+      else: {:error, :unavailable}
+  end
+
+  defp identifier?(name) when is_binary(name),
+    do: name != "" and String.valid?(name) and not String.contains?(name, <<0>>)
+
+  defp identifier?(_), do: false
+
+  defp initialize_lease(lease, {catalog, schema} = expected) do
+    result =
+      try do
+        sql = "USE " <> quote_identifier(catalog) <> "." <> quote_identifier(schema)
+
+        with {:ok, _} <- execute(lease, sql, []),
+             {:ok, ^expected} <- namespace(lease) do
+          {:ok, lease}
+        else
+          _ -> {:error, :unavailable}
+        end
+      rescue
+        _ -> {:error, :unavailable}
+      end
+
+    case result do
+      {:ok, _} ->
+        result
+
+      {:error, :unavailable} ->
+        release(lease, nil)
+        result
+    end
+  end
+
+  defp quote_identifier(name), do: "\"" <> String.replace(name, "\"", "\"\"") <> "\""
 
   @impl true
   @spec release(Store.t(), DB.context()) :: :ok
