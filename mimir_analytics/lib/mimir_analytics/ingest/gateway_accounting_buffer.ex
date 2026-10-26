@@ -25,18 +25,15 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingBuffer do
     bytes = Page.to_buffer(page)
     basename = "gateway_accounting-#{Store.digest(bytes)}.jsonl"
     path = Path.join(dir, basename)
-    temp = Path.join(dir, ".#{basename}.#{System.unique_integer([:positive])}.tmp")
+    nonce = 16 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    temp = Path.join(dir, ".#{basename}.#{nonce}.tmp")
 
-    try do
-      with :ok <- file_command(file_system, :mkdir_p, [dir]),
-           :ok <- publish_bytes(path, temp, bytes, file_system),
-           {:ok, receipt} <- Page.from_buffer(bytes, basename) do
-        {:ok, receipt, path}
-      else
-        _ -> Error.result(:buffer_error)
-      end
-    after
-      file_command(file_system, :rm, [temp])
+    with :ok <- file_command(file_system, :mkdir_p, [dir]),
+         :ok <- publish_bytes(path, temp, bytes, file_system),
+         {:ok, receipt} <- Page.from_buffer(bytes, basename) do
+      {:ok, receipt, path}
+    else
+      _ -> Error.result(:buffer_error)
     end
   end
 
@@ -52,12 +49,18 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingBuffer do
 
       {:error, :enoent} ->
         with :ok <- file_command(file_system, :write, [temp, bytes, [:binary, :exclusive, :sync]]) do
-          link_destination(file_system, temp, path, bytes)
+          publish_owned_temp(file_system, temp, path, bytes)
         end
 
       {:error, _} ->
         :unavailable
     end
+  end
+
+  defp publish_owned_temp(file_system, temp, path, bytes) do
+    link_destination(file_system, temp, path, bytes)
+  after
+    file_command(file_system, :rm, [temp])
   end
 
   defp link_destination(file_system, temp, path, bytes) do
