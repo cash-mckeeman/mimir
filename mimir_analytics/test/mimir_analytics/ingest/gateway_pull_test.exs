@@ -224,4 +224,213 @@ defmodule MimirAnalytics.Ingest.GatewayPullTest do
       assert length(Path.wildcard(Path.join(dir, "*.jsonl"))) == 1
     end
   end
+
+  describe "durable accounting HTTP" do
+    alias MimirAnalytics.Accounting.{Error, Source}
+    alias MimirAnalytics.{AccountingStore, Store}
+
+    setup do
+      {:ok, store} = Store.open(:memory)
+      on_exit(fn -> Store.close(store) end)
+      %{store: store}
+    end
+
+    defp v2_opts(store, dir) do
+      [
+        api_version: 2,
+        source_id: "test:pull",
+        store: store,
+        dir: dir,
+        base_url: "http://gateway.test",
+        token: "secret-token",
+        req_options: [plug: {Req.Test, GatewayPull}]
+      ]
+    end
+
+    defp accounting_body(rows, cursor),
+      do: %{"api_version" => 2, "limit" => 500, "rows" => rows, "next_cursor" => cursor}
+
+    defp accounting_rows,
+      do:
+        "test/support/accounting/producer.json"
+        |> File.read!()
+        |> Jason.decode!()
+        |> Map.fetch!("rows")
+
+    defp checkpoint(store) do
+      {:ok, source} = Source.new(%{source_id: "test:pull", api_version: 2})
+      AccountingStore.checkpoint(store, source)
+    end
+
+    @tag :tmp_dir
+    test "nil cursor is omitted; canonical empty token commits and repeated resume stops", %{
+      store: store,
+      tmp_dir: dir
+    } do
+      owner = self()
+      token = "opaque+/=? &|☃"
+
+      Req.Test.stub(GatewayPull, fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+        send(owner, {:request, conn.request_path, conn.query_string, conn.params})
+        Req.Test.json(conn, accounting_body([], token))
+      end)
+
+      assert {:ok,
+              %{
+                __struct__: MimirAnalytics.Ingest.GatewayPull.Result,
+                files: [file],
+                last_cursor: ^token
+              }} = GatewayPull.pull(v2_opts(store, dir))
+
+      assert_receive {:request, "/admin/api/v2/accounting", "limit=500", %{"limit" => "500"}}
+      assert File.exists?(file)
+      assert {:ok, %{cursor: ^token, page_digest: digest}} = checkpoint(store)
+      assert byte_size(digest) == 64
+
+      for _ <- 1..2 do
+        assert {:ok, %{files: [_], last_cursor: ^token}} = GatewayPull.pull(v2_opts(store, dir))
+
+        assert_receive {:request, "/admin/api/v2/accounting", query,
+                        %{"cursor" => ^token, "limit" => "500"}}
+
+        assert query == "cursor=opaque%2B%2F%3D%3F+%26%7C%E2%98%83&limit=500"
+      end
+
+      assert {:ok, [[0]]} = Store.query(store, "SELECT count(*) FROM accounting_events")
+      assert {:ok, [[2]]} = Store.query(store, "SELECT count(*) FROM ingest_ledger")
+    end
+
+    @tag :tmp_dir
+    test "nonempty pages persist events before requesting the next opaque token", %{
+      store: store,
+      tmp_dir: dir
+    } do
+      owner = self()
+      rows = accounting_rows()
+
+      Req.Test.stub(GatewayPull, fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        case conn.params["cursor"] do
+          nil ->
+            Req.Test.json(
+              conn,
+              Map.put(
+                accounting_body(
+                  rows,
+                  "next"
+                ),
+                "private",
+                "secret-body-extra"
+              )
+            )
+
+          "next" ->
+            send(owner, {:durable, Store.query(store, "SELECT count(*) FROM accounting_events")})
+            Req.Test.json(conn, accounting_body([], "next"))
+        end
+      end)
+
+      assert {:ok, %{files: files, last_cursor: "next"}} = GatewayPull.pull(v2_opts(store, dir))
+      assert length(files) == 2
+      for file <- files, do: refute(File.read!(file) =~ "secret")
+      assert_receive {:durable, {:ok, [[5]]}}
+
+      assert {:ok, %{booked_total_microdollars: 70}} =
+               AccountingStore.get_state(
+                 store,
+                 "test:pull",
+                 hd(rows)["virtual_key_id"],
+                 hd(rows)["run_id"]
+               )
+    end
+
+    @tag :tmp_dir
+    test "caller cursors and absent identity or store fail before HTTP", %{
+      store: store,
+      tmp_dir: dir
+    } do
+      Req.Test.stub(GatewayPull, fn _ -> flunk("invalid configuration reached HTTP") end)
+      opts = v2_opts(store, dir)
+
+      for key <- [:cursor, :from_cursor, :updated_since] do
+        assert {:error, %Error{}} = GatewayPull.pull(Keyword.put(opts, key, nil))
+      end
+
+      for key <- [:source_id, :store] do
+        assert {:error, %Error{}} = GatewayPull.pull(Keyword.delete(opts, key))
+      end
+
+      assert {:ok, %{cursor: nil}} = checkpoint(store)
+    end
+
+    @tag :tmp_dir
+    test "HTTP and transport failures expose only closed status and code", %{
+      store: store,
+      tmp_dir: dir
+    } do
+      for status <- [401, 426, 503] do
+        Req.Test.stub(GatewayPull, fn conn ->
+          Plug.Conn.resp(conn, status, "secret-provider-body")
+        end)
+
+        assert {:error, %Error{code: :http_error, http_status: ^status} = error} =
+                 GatewayPull.pull(v2_opts(store, dir))
+
+        refute inspect(error) =~ "secret"
+      end
+
+      Req.Test.stub(GatewayPull, fn _ -> raise "secret-transport-exception" end)
+
+      assert {:error, %Error{code: :transport_error} = error} =
+               GatewayPull.pull(v2_opts(store, dir))
+
+      refute inspect(error) =~ "secret"
+      assert {:ok, %{cursor: nil}} = checkpoint(store)
+      assert Path.wildcard(Path.join(dir, "*.jsonl")) == []
+    end
+
+    @tag :tmp_dir
+    test "invalid mixed unsupported and missing-cursor pages never publish or acknowledge", %{
+      store: store,
+      tmp_dir: dir
+    } do
+      rows = accounting_rows()
+      bad = Map.put(hd(rows), "kind", "secret-unsupported")
+
+      bodies = [
+        accounting_body([hd(rows), bad], "next"),
+        accounting_body([bad], "next"),
+        Map.delete(accounting_body(rows, "next"), "next_cursor"),
+        accounting_body([], ""),
+        Map.put(accounting_body([], "next"), "api_version", 3)
+      ]
+
+      for body <- bodies do
+        Req.Test.stub(GatewayPull, &Req.Test.json(&1, body))
+        assert {:error, %Error{} = error} = GatewayPull.pull(v2_opts(store, dir))
+        refute inspect(error) =~ "secret"
+        assert {:ok, %{cursor: nil}} = checkpoint(store)
+        assert {:ok, [[0]]} = Store.query(store, "SELECT count(*) FROM accounting_events")
+        assert Path.wildcard(Path.join(dir, "*.jsonl")) == []
+      end
+    end
+
+    @tag :tmp_dir
+    test "resumed nonprogress and empty-token changes fail without moving checkpoint", %{
+      store: store,
+      tmp_dir: dir
+    } do
+      Req.Test.stub(GatewayPull, &Req.Test.json(&1, accounting_body([], "first")))
+      assert {:ok, _} = GatewayPull.pull(v2_opts(store, dir))
+      {:ok, expected} = checkpoint(store)
+
+      for body <- [accounting_body(accounting_rows(), "first"), accounting_body([], "different")] do
+        Req.Test.stub(GatewayPull, &Req.Test.json(&1, body))
+        assert {:error, %Error{code: :invalid_page}} = GatewayPull.pull(v2_opts(store, dir))
+        assert {:ok, ^expected} = checkpoint(store)
+      end
+    end
+  end
 end
