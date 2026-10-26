@@ -29,7 +29,8 @@ defmodule MimirAnalytics.Mappers.GatewayExport do
     bytes = File.read!(path)
     digest = Store.digest(bytes)
 
-    if accounting_buffer?(bytes) do
+    if Regex.match?(~r/\Agateway_accounting-[0-9a-f]{64}\.jsonl\z/, file) or
+         accounting_buffer?(bytes) do
       with {:ok, page} <- Page.from_buffer(bytes, file) do
         AccountingStore.ingest_page(store, page, :replay)
       end
