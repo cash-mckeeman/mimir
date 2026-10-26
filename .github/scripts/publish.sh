@@ -15,6 +15,9 @@ for pkg in "$@"; do
     [ "$attempt" = 10 ] && { echo "$pkg: siblings did not resolve from Hex after 10 attempts" >&2; exit 1; }
     sleep 30
   done
+  if [ "$pkg" = mimir_analytics ]; then
+    MIX_ENV=test MIMIR_PUBLISH=1 mix mimir_analytics.setup
+  fi
   MIX_ENV=test MIMIR_PUBLISH=1 mix test
   MIMIR_PUBLISH=1 mix hex.publish --yes
   echo "- $pkg $version: published" | tee -a "$summary"
