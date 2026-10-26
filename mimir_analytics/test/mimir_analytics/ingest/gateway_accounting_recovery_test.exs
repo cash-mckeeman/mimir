@@ -11,7 +11,8 @@ defmodule MimirAnalytics.AccountingPublicationTestFS do
     if result == {:error, :enoent} do
       {owner, pause?} =
         Agent.get_and_update(context, fn state ->
-          {{state.owner, not state.paused?}, %{state | paused?: true}}
+          {{state.owner, not state.paused? and Map.get(state, :pause_read?, true)},
+           %{state | paused?: true}}
         end)
 
       if pause? do
@@ -30,7 +31,24 @@ defmodule MimirAnalytics.AccountingPublicationTestFS do
 
   @impl true
   @spec write(Path.t(), binary(), [:binary | :exclusive | :sync], pid()) :: FileSystem.result()
-  def write(path, bytes, modes, _context), do: File.write(path, bytes, modes)
+  def write(path, bytes, modes, context) do
+    config = Agent.get(context, & &1)
+
+    if Map.get(config, :pause_write?, false) do
+      send(config.owner, {:before_exclusive_write, self(), path})
+
+      receive do
+        :write -> :ok
+      after
+        5_000 -> raise "temporary ownership barrier timed out"
+      end
+    end
+
+    result = File.write(path, bytes, modes)
+    if Map.get(config, :pause_write?, false), do: send(config.owner, {:exclusive_write, result})
+    result
+  end
+
   @impl true
   @spec mkdir_p(Path.t(), pid()) :: FileSystem.result()
   def mkdir_p(path, _context), do: File.mkdir_p(path)
@@ -285,6 +303,79 @@ defmodule MimirAnalytics.Ingest.GatewayAccountingRecoveryTest do
     assert Path.wildcard(Path.join(dir, "*.jsonl")) == [destination]
     assert Path.wildcard(Path.join(dir, ".*.tmp"), match_dot: true) == []
     assert_empty(store)
+    Agent.stop(context)
+  end
+
+  test "failed exclusive create preserves a preoccupied candidate temporary", %{
+    store: store,
+    dir: dir
+  } do
+    owner = self()
+
+    {:ok, context} =
+      Agent.start_link(fn ->
+        %{owner: owner, paused?: false, pause_read?: false, pause_write?: true}
+      end)
+
+    task =
+      Task.async(fn ->
+        GatewayAccountingBuffer.publish(page(rows(), nil, "next"), dir,
+          file_system: {AccountingPublicationTestFS, context}
+        )
+      end)
+
+    assert_receive {:before_exclusive_write, worker, candidate}, 2_000
+    File.write!(candidate, "preexisting-owner-bytes")
+    send(worker, :write)
+    assert {:error, %{code: :buffer_error}} = Task.await(task)
+    assert_receive {:exclusive_write, {:error, :eexist}}
+    assert File.read(candidate) == {:ok, "preexisting-owner-bytes"}
+    assert Path.wildcard(Path.join(dir, "*.jsonl")) == []
+    assert_empty(store)
+    Agent.stop(context)
+  end
+
+  test "failed publisher leaves an active temporary owner able to finish publication", %{
+    store: store,
+    dir: dir
+  } do
+    owner = self()
+
+    {:ok, context} =
+      Agent.start_link(fn ->
+        %{owner: owner, paused?: false, pause_read?: false, pause_write?: true}
+      end)
+
+    p = page(rows(), nil, "next")
+
+    task =
+      Task.async(fn ->
+        GatewayAccountingBuffer.publish(p, dir,
+          file_system: {AccountingPublicationTestFS, context}
+        )
+      end)
+
+    assert_receive {:before_exclusive_write, worker, candidate}, 2_000
+    bytes = Page.to_buffer(p)
+    {first, rest} = :erlang.split_binary(bytes, div(byte_size(bytes), 2))
+    {:ok, device} = File.open(candidate, [:write, :exclusive, :binary])
+
+    try do
+      :ok = IO.binwrite(device, first)
+      send(worker, :write)
+      assert {:error, %{code: :buffer_error}} = Task.await(task)
+      assert_receive {:exclusive_write, {:error, :eexist}}
+      assert File.read(candidate) == {:ok, first}
+      :ok = IO.binwrite(device, rest)
+    after
+      File.close(device)
+    end
+
+    final = Path.join(dir, "owner_page.jsonl")
+    assert :ok = File.ln(candidate, final)
+    assert File.read!(final) == bytes
+    assert {:ok, %{rows: %{"accounting_events" => 5}}} = GatewayExport.ingest(store, final)
+    assert {:ok, %{cursor: nil}} = AccountingStore.checkpoint(store, source())
     Agent.stop(context)
   end
 
