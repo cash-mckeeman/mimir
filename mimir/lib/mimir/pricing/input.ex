@@ -124,10 +124,16 @@ defmodule Mimir.Pricing.Input do
          cache_read_input_tokens: read,
          cache_creation_input_tokens: write
        })
-       when is_integer(input) and is_integer(read) and is_integer(write) and read + write > input,
-       do: error(:invalid_cache_partition)
+       when is_integer(input) do
+    if known_count_lower_bound(read) + known_count_lower_bound(write) > input,
+      do: error(:invalid_cache_partition),
+      else: :ok
+  end
 
   defp validate_partition(_input), do: :ok
+
+  defp known_count_lower_bound(nil), do: 0
+  defp known_count_lower_bound(count), do: count
 
   defp error(reason), do: {:error, {:invalid_pricing_input, reason}}
 end
