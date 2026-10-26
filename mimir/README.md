@@ -36,6 +36,7 @@ end
 | `Mimir.DecisionRecord` | Typed routing-decision record; `to_event/1` renders the binary-keyed audit map. |
 | `Mimir.RouteLog` | Typed route outcome plus a request-log meta builder. |
 | `Mimir.Pricing` | Token usage to integer microdollar cost, config-first over a vendored LiteLLM pricing DB. |
+| `Mimir.Pricing.Input`, `Mimir.Pricing.Quote` | Validated measurements and a quote that distinguishes priced, unpriced and incomplete usage. |
 | `Mimir.Event` | Domain-typed event vocabulary (`llm.*` / `agent.*` / `workflow.*`) — the vocabulary root `Mimir.TurnEvents` buffers and `Mimir.Ingest` promotes raw events onto. |
 | `Mimir.Event.OTel` | Canonical OTel GenAI semantic-convention rendering for `Mimir.Event` at the export edge — the one place that vocabulary still lives, on purpose. |
 | `Mimir.CloudEvent` | CloudEvents v1.0 envelope — wraps any domain body (a `Mimir.Event` wire map, a decision record) in `data` with the standard context attributes as siblings. The second export edge. |
@@ -87,6 +88,57 @@ All configuration lives under the `:mimir` application:
 | `:health_threshold` | `Mimir.Health` | Failure-streak count at which a lane is reported `:degraded`. Default `3`. |
 | `:completion_event` | `Mimir.Health` | Telemetry event `Health.attach/0` listens on. Default `[:mimir, :completion]`. |
 | `:turn_events_tables` | `Mimir.TurnEvents` | `{seq_table, buf_table}` ETS table names, for running more than one buffer instance. |
+
+## Pricing quotes
+
+Use `Mimir.Pricing.quote/2` when callers need to distinguish known cost from
+missing measurements or unavailable prices. An input is complete enough to
+price only when all four counts are known, `input_token_basis` is `:inclusive`
+or `:uncached`, `complete?` is `true` and `in_flight` is `:none`.
+Inclusive input includes both cache categories; uncached input excludes them.
+Incomplete and unpriced quotes have `nil` cost; unknown facts never imply zero.
+
+```elixir
+alias Mimir.Pricing
+alias Mimir.Pricing.{Input, Quote}
+
+Application.put_env(:mimir, :pricing, %{"example:free" => %{input: 0, output: 0}})
+
+attrs = %{
+  input_tokens: 12,
+  output_tokens: 5,
+  cache_read_input_tokens: 0,
+  cache_creation_input_tokens: 0,
+  input_token_basis: :uncached,
+  complete?: true,
+  in_flight: :none
+}
+
+{:ok, input} = Input.new(attrs)
+{:ok, %Quote{status: :priced, cost_microdollars: 0}} = Pricing.quote("example:free", input)
+
+{:ok, incomplete} = Input.new(Map.delete(attrs, :cache_read_input_tokens))
+
+{:ok, %Quote{status: :incomplete, cost_microdollars: nil}} =
+  Pricing.quote("example:free", incomplete)
+
+case Pricing.quote("example:free", input) do
+  {:ok, %Quote{status: :priced, cost_microdollars: cost}} ->
+    {:known_cost, cost}
+
+  {:ok, %Quote{status: status}} when status in [:incomplete, :unpriced] ->
+    {:unknown_cost, status}
+
+  {:error, reason} ->
+    {:error, reason}
+end
+```
+
+See `Mimir.Pricing.quote/2` for rate availability and tagged configuration
+errors, and `Mimir.Pricing.Input.new/1` for validation and omission defaults.
+The compatible `Mimir.Pricing.cost_microdollars/2` API defaults missing usage
+and unknown base rates to zero, and uses the input rate when a cache rate is
+missing. `Mimir.Guard` continues to use that API for its soft budget threshold.
 
 ## Examples
 
