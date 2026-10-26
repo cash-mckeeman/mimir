@@ -3,7 +3,7 @@ defmodule MimirFamily.MixProject do
   use Mix.Project
 
   # Publish order. A package is published only while it is listed here.
-  @publish ~w(mimir mimir_workflows mimir_orchestration)
+  @publish ~w(mimir mimir_workflows mimir_orchestration mimir_analytics)
 
   # Every sibling, in dependency order. The root aliases run in each one.
   @siblings ~w(mimir mimir_workflows mimir_orchestration mimir_analytics integration)
