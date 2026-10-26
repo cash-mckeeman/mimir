@@ -20,6 +20,16 @@ defmodule MimirAnalytics.Store.DuckDB do
   @impl true
   @spec command(Store.t(), DB.command(), DB.context()) ::
           {:ok, [[term()]]} | {:error, DB.failure()}
+  def command(store, :commit, _context) do
+    health = execute(store, "SELECT 1", [])
+    commit = execute(store, "COMMIT", [])
+
+    case health do
+      {:ok, _} -> commit
+      {:error, _} = error -> error
+    end
+  end
+
   def command(store, command, _context) do
     {sql, params} = sql(command)
     execute(store, sql, params)
@@ -35,7 +45,6 @@ defmodule MimirAnalytics.Store.DuckDB do
   end
 
   defp sql(:begin), do: {"BEGIN TRANSACTION", []}
-  defp sql(:commit), do: {"COMMIT", []}
   defp sql(:rollback), do: {"ROLLBACK", []}
   defp sql({:query, sql, params}), do: {sql, params}
 
