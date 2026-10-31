@@ -1,6 +1,7 @@
 defmodule MimirAnalytics.Mappers.GatewayExportTest do
   use ExUnit.Case, async: true
 
+  alias MimirAnalytics.Accounting.{Error, Page, Source}
   alias MimirAnalytics.{Mappers.GatewayExport, Mappers.Session, Store}
 
   @fixture Path.expand("../../support/run_record_fixtures/gateway_export.jsonl", __DIR__)
@@ -173,5 +174,43 @@ defmodule MimirAnalytics.Mappers.GatewayExportTest do
 
     {:ok, _} = GatewayExport.ingest(store, @fixture)
     assert :already_ingested = GatewayExport.ingest(store, copy)
+  end
+
+  test "accounting wrappers preserve replay status and mixed or unsupported files never ledger" do
+    {:ok, store} = Store.open(:memory)
+
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "analytics-accounting-mapper-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl"
+      )
+
+    try do
+      {:ok, source} =
+        Source.new(%{source_id: "mapper:test", api_version: 2})
+
+      wire = "test/support/accounting/producer.json" |> File.read!() |> Jason.decode!()
+      {:ok, page} = Page.new(wire, source, nil)
+      bytes = Page.to_buffer(page)
+      File.write!(path, bytes)
+
+      assert {:ok, %{rows: %{"accounting_events" => 5, "accounting_states" => 3}}} =
+               GatewayExport.ingest(store, path)
+
+      assert :already_ingested = GatewayExport.ingest(store, path)
+
+      for invalid <- [
+            bytes <> "{\"kind\":\"request_log\"}\n",
+            Jason.encode!(%{api_version: 3, rows: []}),
+            "{\"kind\":\"accounting_page\""
+          ] do
+        File.write!(path, invalid)
+        assert {:error, %Error{}} = GatewayExport.ingest(store, path)
+        refute Store.ingested?(store, Store.digest(invalid))
+      end
+    after
+      Store.close(store)
+      File.rm!(path)
+    end
   end
 end

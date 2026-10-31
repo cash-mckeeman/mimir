@@ -1,0 +1,1 @@
+Synthetic HTTP responses emitted by [mimir_gateway](https://github.com/cash-mckeeman/mimir_gateway) at revision `be48bd0a5f4b1ba4695c969be8db272b224ae472`. Trusted synthetic proposals cover corrected bookings, nullable usage, provisional charges, no-work settlement and empty positions; they do not demonstrate provider pricing.

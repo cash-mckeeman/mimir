@@ -1,25 +1,17 @@
 defmodule MimirAnalytics.Ingest.GatewayPull do
   @moduledoc """
-  Pulls the gateway's read-only Observability API (`updated_since` cursor)
-  and buffers each page as run-record JSONL — the same line shapes the
-  gateway-export mapper ingests, so the buffer file is the contract wherever
-  the bytes came from. Plain HTTP + maps only (dependency-direction
-  invariant).
+  Buffers legacy v1 request logs by `updated_since`. Explicit `api_version: 2`
+  pulls accounting with a caller-owned source identity and Store; only a database
+  commit acknowledges its opaque cursor. V2 errors exclude transport details.
 
-  Routing decisions are not a top-level API field: they ride inside each row's
-  `turn_events` (as `ai.bizinsights.mimir.routing.decision` CloudEvents, or as
-  bare `routing_decision` entries on rows predating CloudEvents) and are
-  lifted out here into their own `routing_decision` buffer lines.
-
-  The endpoint below is the contract this module is written against. The
-  gateway now serves it behind its own read-only credential, so this module is
-  live-runnable; the cursor it echoes is composite (`<rfc3339>|<uuid>`) and is
-  passed back verbatim, never parsed here.
-
-  Buffer filenames are collision-free by construction (`page_filename/3`) —
-  the buffer file is the ingest contract, and a name collision would drop a
-  page silently.
+  Stale or uncertain acknowledgements reload and refetch, with at most three
+  recovery retries per pull. V2 buffers remain available for Mapper replay.
   """
+
+  alias MimirAnalytics.Accounting.{Error, Page, Source}
+  alias MimirAnalytics.{AccountingStore, Store}
+  alias MimirAnalytics.Ingest.GatewayAccountingBuffer
+  alias MimirAnalytics.Ingest.GatewayPull.Result
 
   @endpoint "/admin/api/v1/request-log"
   @page_limit 500
@@ -30,8 +22,106 @@ defmodule MimirAnalytics.Ingest.GatewayPull do
   # README.
   @routing_decision_type "ai.bizinsights.mimir.routing.decision"
 
-  @spec pull(keyword()) :: {:ok, %{files: [Path.t()], last_cursor: String.t() | nil}}
+  @doc "V2 requires source_id/store and owns its cursor. The optional db adapter follows Store.DB."
+  @spec pull(keyword()) ::
+          {:ok, %{files: [Path.t()], last_cursor: String.t() | nil} | Result.t()}
+          | {:error, Error.t()}
   def pull(opts) do
+    case Keyword.get(opts, :api_version, 1) do
+      1 -> pull_v1(opts)
+      2 -> pull_accounting(opts)
+      _ -> Error.result(:unsupported_version, :api_version)
+    end
+  end
+
+  defp pull_accounting(opts) do
+    with :ok <- accounting_options(opts),
+         {:ok, source} <- Source.new(%{source_id: opts[:source_id], api_version: 2}) do
+      accounting_loop(opts, source, [], 3)
+    end
+  end
+
+  defp accounting_options(opts) do
+    cond do
+      Enum.any?([:updated_since, :cursor, :from_cursor], &Keyword.has_key?(opts, &1)) ->
+        Error.result(:invalid_page, :cursor)
+
+      not match?(%Store{}, opts[:store]) ->
+        Error.result(:storage_error)
+
+      not Enum.all?([:base_url, :token, :dir], &is_binary(opts[&1])) ->
+        Error.result(:invalid_page)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp accounting_loop(opts, source, files, retries) do
+    db_opts = Keyword.take(opts, [:db])
+
+    with {:ok, checkpoint} <- AccountingStore.checkpoint(opts[:store], source, db_opts),
+         {:ok, body} <- accounting_request(opts, checkpoint.cursor),
+         {:ok, page} <- Page.new(body, source, checkpoint.cursor),
+         {:ok, receipt, path} <- GatewayAccountingBuffer.publish(page, opts[:dir]) do
+      acknowledge(opts, source, files, retries, checkpoint, receipt, path)
+    end
+  end
+
+  defp acknowledge(opts, source, files, retries, checkpoint, page, path) do
+    case AccountingStore.ingest_page(
+           opts[:store],
+           page,
+           {:advance, checkpoint},
+           Keyword.take(opts, [:db])
+         ) do
+      {:ok, _} ->
+        continue_accounting(opts, source, [path | files], retries, page)
+
+      {:error, %Error{code: code}}
+      when code in [:checkpoint_conflict, :commit_uncertain] and retries > 0 ->
+        accounting_loop(opts, source, files, retries - 1)
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp continue_accounting(_opts, _source, files, _retries, %Page{events: [], next_cursor: cursor}),
+       do: Result.new(%{files: Enum.reverse(files), last_cursor: cursor})
+
+  defp continue_accounting(opts, source, files, retries, _page),
+    do: accounting_loop(opts, source, files, retries)
+
+  defp accounting_request(opts, cursor) do
+    params =
+      if is_nil(cursor), do: [limit: @page_limit], else: [cursor: cursor, limit: @page_limit]
+
+    request =
+      Keyword.merge(Keyword.get(opts, :req_options, []),
+        base_url: opts[:base_url],
+        url: "/admin/api/v2/accounting",
+        auth: {:bearer, opts[:token]},
+        params: params,
+        retry: false
+      )
+
+    case Req.get(request) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %{status: status}} ->
+        {:ok, error} = Error.new(%{code: :http_error, http_status: status})
+        {:error, error}
+
+      {:error, _} ->
+        Error.result(:transport_error)
+    end
+  rescue
+    _ -> Error.result(:transport_error)
+  end
+
+  defp pull_v1(opts) do
     base = Keyword.fetch!(opts, :base_url)
     token = Keyword.fetch!(opts, :token)
     dir = Keyword.fetch!(opts, :dir)
