@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The optional RMA adapter requires `req_managed_agents >= 0.14.1 and < 0.15.0`
+  for turn-limit enforcement. ReqLLM execution requires Req 0.7.5 or later in
+  the 0.7 series for its HTTP transport.
+
 ## 0.8.0
 
 ### Changed

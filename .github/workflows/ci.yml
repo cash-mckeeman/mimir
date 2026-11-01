@@ -240,6 +240,7 @@ jobs:
           mix test
           test/mimir_orchestration/agent_runner_rma_reference_test.exs
           test/mimir_orchestration/agent_runner_rma_binding_test.exs
+          test/mimir_orchestration/agent_runner_rma_http_test.exs
           test/mimir_orchestration/agent_runner_rma_run_test.exs
           test/mimir_orchestration/agent_runner_rma_run_outcome_test.exs
           test/mimir_orchestration/agent_runner_rma_test.exs

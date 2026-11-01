@@ -70,7 +70,11 @@ defmodule MimirOrchestration.MixProject do
   defp req_llm_dep do
     if System.get_env("MIMIR_WITHOUT_REQ_LLM") == "1",
       do: [],
-      else: [{:req_llm, "~> 1.10", optional: true}]
+      # ReqLLM's transport uses the keyword Finch options provided by Req 0.7.
+      else: [
+        {:req_llm, "~> 1.10", optional: true},
+        {:req, "~> 0.7.5", optional: true}
+      ]
   end
 
   # MIMIR_WITHOUT_RMA=1 removes it from the dependency graph (CI's without-RMA leg);
