@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.0
+
+Version aligned with the 0.9 library release; the workflow API is unchanged.
+
 ## 0.8.0
 
 Version aligned with the 0.8 library release.
