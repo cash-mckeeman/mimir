@@ -12,4 +12,6 @@ knob "publishing refuses MIMIR_WITHOUT_RMA"   "MIMIR_PUBLISH cannot be combined"
 knob "publishing refuses MIMIR_RMA_PIN"       "MIMIR_PUBLISH cannot be combined" MIMIR_PUBLISH=1 MIMIR_RMA_PIN=0.14.0
 knob "publishing refuses MIMIR_WITHOUT_REQ_LLM" "MIMIR_PUBLISH cannot be combined with MIMIR_WITHOUT_REQ_LLM" MIMIR_PUBLISH=1 MIMIR_WITHOUT_REQ_LLM=1
 knob "a pre-release pin is outside the range" 'MIMIR_RMA_PIN "0.15.0-rc.1" is outside' MIMIR_RMA_PIN=0.15.0-rc.1
+knob "the floor selects the repaired execution contract" '"== 0.14.1"' MIMIR_RMA_PIN=floor
+knob "the old execution contract is outside the range" 'MIMIR_RMA_PIN "0.14.0" is outside' MIMIR_RMA_PIN=0.14.0
 exit $fail

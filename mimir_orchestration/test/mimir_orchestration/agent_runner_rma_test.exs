@@ -211,7 +211,7 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
     end
 
     handler = fn _id, _name, _input -> {:ok, "unused"} end
-    spec = %{spec: %{system_prompt: "be brief"}, chat_fun: chat_fun, max_turns: 2}
+    spec = %{spec: %{system_prompt: "be brief"}, chat_fun: chat_fun, max_turns: 1}
 
     for ref <- [{:spec, spec}, {:handle, spec}] do
       assert {:ok, %NodeResult{text: "pong", usage: usage, raw: raw}} =
@@ -276,6 +276,51 @@ defmodule MimirOrchestration.AgentRunner.RMATest do
                router: {Router, []},
                agent_runner_opts: [handler: LookupHandler]
              )
+  end
+
+  test "the default adapter refuses continuation before executing a tool at the turn limit" do
+    owner = self()
+
+    chat_fun = fn _ ->
+      send(owner, :limited_chat)
+
+      {:ok,
+       %{
+         "choices" => [
+           %{
+             "message" => %{
+               "role" => "assistant",
+               "content" => nil,
+               "tool_calls" => [
+                 %{
+                   "id" => "limited-tool",
+                   "type" => "function",
+                   "function" => %{"name" => "lookup", "arguments" => "{}"}
+                 }
+               ]
+             },
+             "finish_reason" => "tool_calls"
+           }
+         ]
+       }}
+    end
+
+    handle = %{spec: %{system_prompt: "brief"}, chat_fun: chat_fun}
+
+    assert {:error, {:max_turns_exceeded, 1}} =
+             AgentRunner.RMA.run(
+               reference(ReqManagedAgents.Providers.Local, {:handle, handle}),
+               "q",
+               max_turns: 1,
+               handler: fn _, _, _ ->
+                 send(owner, :limited_tool)
+                 {:ok, "42"}
+               end
+             )
+
+    assert_received :limited_chat
+    refute_received :limited_chat
+    refute_received :limited_tool
   end
 
   defp reference(provider, resource) do
