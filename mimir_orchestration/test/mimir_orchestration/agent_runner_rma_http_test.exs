@@ -51,21 +51,32 @@ defmodule MimirOrchestration.AgentRunner.RMAHTTPTest do
 
       response =
         Jason.encode!(%{
-          id: "fixture", object: "chat.completion", created: 1, model: "fixture:model",
-          choices: [%{index: 0, message: %{role: "assistant", content: "ok"}, finish_reason: "stop"}],
+          id: "fixture",
+          object: "chat.completion",
+          created: 1,
+          model: "fixture:model",
+          choices: [
+            %{index: 0, message: %{role: "assistant", content: "ok"}, finish_reason: "stop"}
+          ],
           usage: %{prompt_tokens: 3, completion_tokens: 1, total_tokens: 4}
         })
 
-      :ok = :gen_tcp.send(socket, [
-        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: ",
-        Integer.to_string(byte_size(response)), "\r\n\r\n", response
-      ])
+      :ok =
+        :gen_tcp.send(socket, [
+          "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: ",
+          Integer.to_string(byte_size(response)),
+          "\r\n\r\n",
+          response
+        ])
+
       :gen_tcp.close(socket)
     end
 
     defp read_headers(socket, acc) do
       case String.split(acc, "\r\n\r\n", parts: 2) do
-        [headers, rest] -> {headers, rest}
+        [headers, rest] ->
+          {headers, rest}
+
         [_] ->
           {:ok, more} = :gen_tcp.recv(socket, 0, 1_000)
           read_headers(socket, acc <> more)
@@ -73,6 +84,7 @@ defmodule MimirOrchestration.AgentRunner.RMAHTTPTest do
     end
 
     defp read_body(_socket, acc, length) when byte_size(acc) >= length, do: acc
+
     defp read_body(socket, acc, length) do
       {:ok, more} = :gen_tcp.recv(socket, 0, 1_000)
       read_body(socket, acc <> more, length)

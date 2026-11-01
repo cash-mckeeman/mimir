@@ -7,7 +7,7 @@ defmodule MimirOrchestration.DepDirectionTest do
 
   @runtime [:jason, :mimir, :mimir_workflows, :telemetry]
   @optional [:jido] ++
-              if(System.get_env("MIMIR_WITHOUT_REQ_LLM") == "1", do: [], else: [:req_llm]) ++
+              if(System.get_env("MIMIR_WITHOUT_REQ_LLM") == "1", do: [], else: [:req, :req_llm]) ++
               if(System.get_env("MIMIR_WITHOUT_RMA") == "1", do: [], else: [:req_managed_agents])
   @confined [
     {~r/\bReqManagedAgents\./,
