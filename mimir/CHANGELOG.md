@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0
+
 ### Added
 
 - `Mimir.Pricing.quote/2` with validated `Input` and `Quote` structs distinguishes
