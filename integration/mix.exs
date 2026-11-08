@@ -8,7 +8,15 @@ defmodule Integration.MixProject do
       version: "0.0.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
-      deps: deps()
+      deps: deps(),
+      hex: [
+        ignore_advisories: [
+          # Test-only HTTP server advisories; no fixed Hex release.
+          "EEF-CVE-2026-43966",
+          "EEF-CVE-2026-113431",
+          "EEF-CVE-2026-115701"
+        ]
+      ]
     ]
   end
 
