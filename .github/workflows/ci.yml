@@ -26,7 +26,7 @@ jobs:
       analytics: ${{ steps.detect.outputs.analytics }}
       integration: ${{ steps.detect.outputs.integration }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: {fetch-depth: 0}
       - id: detect
         env:
@@ -45,7 +45,7 @@ jobs:
   repo-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: erlef/setup-beam@v1
         with: {elixir-version: "1.20", otp-version: "29"}
       - name: Script tests
@@ -77,7 +77,7 @@ jobs:
           - {elixir: "1.18", otp: "27"}
           - {elixir: "1.20", otp: "29", lint: true}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
       - run: mix deps.get
@@ -93,10 +93,10 @@ jobs:
     env: {MIX_ENV: dev}
     defaults: {run: {working-directory: mimir}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir, elixir: "1.20", otp: "29", cache-key: quality}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: mimir/priv/plts
           key: plt-${{ runner.os }}-mimir-29-1.20-${{ hashFiles('mimir/mix.lock') }}
@@ -123,7 +123,7 @@ jobs:
           - {elixir: "1.18", otp: "27"}
           - {elixir: "1.20", otp: "29", lint: true}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_workflows, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
       - run: mix deps.get
@@ -138,10 +138,10 @@ jobs:
     env: {MIX_ENV: dev}
     defaults: {run: {working-directory: mimir_workflows}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_workflows, elixir: "1.20", otp: "29", cache-key: quality}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: mimir_workflows/priv/plts
           key: plt-${{ runner.os }}-mimir_workflows-29-1.20-${{ hashFiles('mimir_workflows/mix.lock') }}
@@ -168,7 +168,7 @@ jobs:
           - {elixir: "1.20", otp: "28"}
           - {elixir: "1.20", otp: "29", lint: true}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_orchestration, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
       - name: mix.lock holds no sibling and no git dependency
@@ -187,10 +187,10 @@ jobs:
     env: {MIX_ENV: dev}
     defaults: {run: {working-directory: mimir_orchestration}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: quality}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: mimir_orchestration/priv/plts
           key: plt-${{ runner.os }}-mimir_orchestration-29-1.20-${{ hashFiles('mimir_orchestration/mix.lock') }}
@@ -222,7 +222,7 @@ jobs:
     env:
       MIMIR_RMA_PIN: ${{ matrix.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: "rma-${{ matrix.bound }}"}
       - run: mix deps.unlock req_managed_agents && mix deps.get
@@ -254,7 +254,7 @@ jobs:
     env:
       MIMIR_WITHOUT_RMA: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: without-rma}
       - run: mix deps.get
@@ -271,7 +271,7 @@ jobs:
     env:
       MIMIR_WITHOUT_REQ_LLM: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_orchestration, elixir: "1.20", otp: "29", cache-key: without-req-llm}
       - run: mix deps.get
@@ -292,7 +292,7 @@ jobs:
           - {elixir: "1.18", otp: "27"}
           - {elixir: "1.20", otp: "29", lint: true}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_analytics, elixir: "${{ matrix.elixir }}", otp: "${{ matrix.otp }}"}
       - run: mix deps.get
@@ -309,10 +309,10 @@ jobs:
     env: {MIX_ENV: dev}
     defaults: {run: {working-directory: mimir_analytics}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: mimir_analytics, elixir: "1.20", otp: "29", cache-key: quality}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: mimir_analytics/priv/plts
           key: plt-${{ runner.os }}-mimir_analytics-29-1.20-${{ hashFiles('mimir_analytics/mix.lock') }}
@@ -332,7 +332,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: integration}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/beam
         with: {package: integration, elixir: "1.20", otp: "29"}
       - name: mix.lock holds no sibling
@@ -364,7 +364,7 @@ jobs:
       - integration-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - env:
           NEEDS: ${{ toJSON(needs) }}
         run: printf '%s' "$NEEDS" | bash .github/scripts/ci_ok.sh
