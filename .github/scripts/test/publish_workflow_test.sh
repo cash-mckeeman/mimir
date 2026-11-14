@@ -8,7 +8,7 @@ check() { if [ "$2" = "$3" ]; then echo "ok: $1"; else echo "FAIL: $1 (want '$2'
 job() { awk -v n="  $1:" '$0 == n {f=1; next} f && /^  [a-z]+:/ {exit} f' "$WF"; }
 
 check "no step carries a Hex key" 0 "$(grep -c 'HEX_API_KEY' "$WF")"
-check "no line reads a secret" 0 "$(grep -v '^ *#' "$WF" | grep -c 'secrets\.')"
+check "no line reads a secret" 0 "$(grep -v '^ *#' "$WF" | grep -c 'secrets')"
 check "only the publish job mints an OIDC token" 1 "$(grep -c 'id-token: write' "$WF")"
 check "the publish job holds it" 1 "$(job publish | grep -c 'id-token: write')"
 check "the guard job does not" 0 "$(job guard | grep -c 'id-token')"
