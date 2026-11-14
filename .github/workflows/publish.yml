@@ -3,6 +3,7 @@ name: Publish
 # A pushed tag publishes: vX.Y.0 every package in `mix publish_order`, in order;
 # <package>-vX.Y.Z one package's patch. A manual dispatch is always a dry run: the
 # guard runs every check against the given tag name and commit, and nothing publishes.
+# Publishing authenticates to hex.pm with the job's OIDC token; there is no stored key.
 on:
   push:
     tags: ["v*", "*-v*"]
@@ -33,6 +34,8 @@ jobs:
           ref: ${{ inputs.sha || github.sha }}
       - uses: erlef/setup-beam@v1
         with: {elixir-version: "1.20", otp-version: "29"}
+      - name: hex supports workload identity
+        run: bash .github/scripts/hex_workload_identity.sh
       - id: guard
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,14 +49,22 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # HEX_API_KEY lives in the prod environment; only this job declares it.
+    # hex.pm trusts this repository's publish.yml running in the prod
+    # environment (workload identity): no stored key. Only this job may mint the
+    # OIDC token. The job-level block replaces the workflow-level one, so it
+    # restates what the job reads.
     environment: prod
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with: {elixir-version: "1.20", otp-version: "29"}
+      - name: hex supports workload identity
+        run: bash .github/scripts/hex_workload_identity.sh
       - env:
-          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
           VERSION: ${{ needs.guard.outputs.version }}
           PACKAGES: ${{ needs.guard.outputs.packages }}
         run: |
