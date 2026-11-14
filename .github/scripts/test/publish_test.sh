@@ -66,4 +66,17 @@ mimir|test|test|1
 mimir|hex.publish --yes|dev|1
 TRACE
 run_case 'other packages retain their existing publication path' mimir 0 0 0
+
+# An empty version or package list is a mistake, not a release of nothing.
+refuse() {
+  local name="$1" status=0; shift
+  : > "$T/trace"
+  (unset MIX_ENV; PATH="$T/bin:$PATH" FAKE_PUBLISH_TRACE="$T/trace" FAKE_PUBLISH_STATE="$T/state" \
+    bash "$T/.github/scripts/publish.sh" "$@") > "$T/output" 2>&1 || status=$?
+  if [ "$status" = 1 ] && [ ! -s "$T/trace" ]; then echo "ok: $name"; else echo "FAIL: $name (exit $status, trace: $(cat "$T/trace"))"; fail=1; fi
+}
+refuse 'no version and no packages is refused' ''
+refuse 'a version with no packages is refused' 0.8.1
+refuse 'a version with an empty package list entry is refused' 0.8.1 ''
+refuse 'packages with an empty version are refused' '' mimir
 exit "$fail"
