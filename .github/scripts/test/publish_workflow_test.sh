@@ -13,7 +13,7 @@ check "only the publish job mints an OIDC token" 1 "$(grep -c 'id-token: write' 
 check "the publish job holds it" 1 "$(job publish | grep -c 'id-token: write')"
 check "the guard job does not" 0 "$(job guard | grep -c 'id-token')"
 check "the publish job keeps contents: read" 1 "$(job publish | grep -c '      contents: read')"
-check "the publish job keeps checks: read" 1 "$(job publish | grep -c '      checks: read')"
+check "the publish job polls no checks, so it holds no checks permission" 0 "$(job publish | grep -c '      checks:')"
 check "the publish job runs in prod, where hex.pm trusts it" 1 "$(job publish | grep -c '    environment: prod')"
 check "the publish job runs on a tag push only" 1 "$(job publish | grep -c "    if: github.event_name == 'push'")"
 for j in guard publish; do
