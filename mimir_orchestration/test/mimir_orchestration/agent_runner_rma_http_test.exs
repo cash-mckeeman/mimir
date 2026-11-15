@@ -13,6 +13,7 @@ defmodule MimirOrchestration.AgentRunner.RMAHTTPTest do
       {:ok, {_, port}} = :inet.sockname(listener)
 
       start_supervised!({Task, fn -> serve(listener, owner) end})
+      api_key = "fixture-key"
 
       {:ok, reference} =
         Reference.new(
@@ -25,7 +26,7 @@ defmodule MimirOrchestration.AgentRunner.RMAHTTPTest do
                RMA.run(reference, "q",
                  model_config: %{
                    model: "fixture:model",
-                   api_key: "fixture-key",
+                   api_key: api_key,
                    base_url: "http://127.0.0.1:#{port}/v1"
                  },
                  handler: fn _, _, _ -> {:error, :unexpected_tool} end,
@@ -38,7 +39,7 @@ defmodule MimirOrchestration.AgentRunner.RMAHTTPTest do
       assert result.usage["output_tokens"] == 1
       assert_received {:wire, headers, %{"model" => "fixture:model"}}
       assert headers =~ "POST /v1/chat/completions HTTP/1.1"
-      assert String.downcase(headers) =~ "authorization: bearer fixture-key"
+      assert String.downcase(headers) =~ "authorization: bearer #{api_key}"
       refute_received {:wire, _, _}
     end
 
